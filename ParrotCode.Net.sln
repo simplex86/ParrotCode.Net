@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.8.34330.188
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ParrotCode.Net", "ParrotCode.Net\ParrotCode.Net.csproj", "{E677ECFC-AA3E-4CD6-8A81-0C80AFA67A64}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ParrotCode.Net-xUnit", "ParrotCode.Net-xUnit\ParrotCode.Net-xUnit.csproj", "{2856724A-CDAA-4332-8BCE-0A2894B3BC21}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{E677ECFC-AA3E-4CD6-8A81-0C80AFA67A64}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E677ECFC-AA3E-4CD6-8A81-0C80AFA67A64}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E677ECFC-AA3E-4CD6-8A81-0C80AFA67A64}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E677ECFC-AA3E-4CD6-8A81-0C80AFA67A64}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2856724A-CDAA-4332-8BCE-0A2894B3BC21}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2856724A-CDAA-4332-8BCE-0A2894B3BC21}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2856724A-CDAA-4332-8BCE-0A2894B3BC21}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2856724A-CDAA-4332-8BCE-0A2894B3BC21}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {D3BB5CE6-3DC7-4880-B929-39624FAEF5EC}
+	EndGlobalSection
+EndGlobal
