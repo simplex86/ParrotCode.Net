@@ -26,6 +26,16 @@ using var loggerFactory = LoggerFactory.Create(builder =>
 });
 var logger = loggerFactory.CreateLogger("ParrotCode");
 
-var provider = new MockProvider();
-var app = new App(provider, logger, cts.Token);
+// 迭代 2a：硬编码 ProviderConfig 装配。迭代 2b 改由 ConfigLoader 从 YAML 加载。
+var providerConfig = new ProviderConfig
+{
+    Name = "mock",
+    Protocol = "mock",
+    Model = "mock-1"
+};
+var provider = ProviderFactory.Create(providerConfig);
+logger.LogInformation("使用 provider={Name} model={Model} protocol={Protocol}",
+    providerConfig.Name, providerConfig.Model, providerConfig.Protocol);
+
+var app = new App(provider, providerConfig, logger, cts.Token);
 await app.RunAsync();

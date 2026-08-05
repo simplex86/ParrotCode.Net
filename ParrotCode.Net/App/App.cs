@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Spectre.Console;
 
 namespace ParrotCode
@@ -7,11 +7,15 @@ namespace ParrotCode
     /// 主循环：读输入 → 调 Provider → 打印回复。承载在独立类中，
     /// 便于后续迭代替换 Provider / TUI 实现而不动 Main 的装配代码。
     /// </summary>
-    internal sealed class App(IChatProvider provider, ILogger logger, CancellationToken ct)
+    internal sealed class App(IBaseProvider provider, ProviderConfig providerConfig, ILogger logger, CancellationToken ct)
     {
         public async Task RunAsync()
         {
-            AnsiConsole.MarkupLine("[grey]ParrotCode.Net[/] [green]mock 模式[/]。输入 exit 退出。");
+            AnsiConsole.MarkupLine(
+                $"[grey]ParrotCode.Net[/] [green]mock 模式[/] | " +
+                $"provider=[cyan]{Markup.Escape(providerConfig.Name)}[/] " +
+                $"model=[cyan]{Markup.Escape(providerConfig.Model)}[/] " +
+                $"protocol=[cyan]{Markup.Escape(providerConfig.Protocol)}[/]");
 
             while (!ct.IsCancellationRequested)
             {
@@ -37,7 +41,8 @@ namespace ParrotCode
 
                 try
                 {
-                    var reply = await provider.ChatAsync(line, ct);
+                    var messages = new[] { new Message(MessageRole.User, line) };
+                    var reply = await provider.ChatAsync(messages, ct);
                     AnsiConsole.MarkupLine($"[green]AI：[/]{Markup.Escape(reply)}");
                 }
                 catch (OperationCanceledException)
