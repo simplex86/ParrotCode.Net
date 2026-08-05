@@ -47,6 +47,32 @@
 
 > 关键判据：本迭代 `csproj` **不变**，`dotnet build` / `dotnet test` / `dotnet run` 的命令面与迭代 1 一致。
 
+### 3.3 DeepSeek 接入定位
+
+> 补充需求：支持 DeepSeek 作为主测试目标，同时保留 OpenAI / Anthropic 兼容。本节明确其在 2a 阶段的定位与对各迭代的影响。
+
+DeepSeek 官方 API 完全兼容 OpenAI 格式，因此**不引入独立协议**，而是作为 `openai` 协议的实例接入：
+
+- 配置形如 `protocol: openai`、`base_url: https://api.deepseek.com/v1`、`model: deepseek-chat`（或 `deepseek-reasoner`）。
+- 由迭代 3 的 `OpenAIProvider` 统一处理，通过 `ProviderConfig.BaseUrl` 区分 OpenAI 官方端点与 DeepSeek 端点。
+
+**对 2a 的影响（代码实质零改动）**：
+
+- `ProviderConfig` 已有 `BaseUrl / ApiKey / Model / Protocol` 四字段，足以表达 DeepSeek，**不新增字段**。
+- `ProviderFactory` 已有 `openai` 分支（迭代 3 填充实现），DeepSeek 配置走该分支即可。
+- 仅在工厂 `openai` 分支补一行注释，点明其覆盖 OpenAI 官方与 DeepSeek 等 OpenAI 兼容服务。
+- `MessageRole` / `Message` / `ToolCall` 等类型不受影响。
+
+**后续迭代的落实**：
+
+| 迭代 | 落实点 |
+| --- | --- |
+| 2b | `example.parrocode.yaml` 将 DeepSeek 设为主推示例配置（置于 `providers` 首位或作 `active_provider`） |
+| 3 | `OpenAIProvider` 实现兼容 DeepSeek 差异：主要是 `deepseek-reasoner` 响应中的 `reasoning_content` 字段（OpenAI 标准无此字段），以及 DeepSeek 不支持的个别 OpenAI 请求参数需按模型按需剔除 |
+| 3+ | 测试策略：联调以 DeepSeek 为主（成本低、国内可访问）；OpenAI / Anthropic 做兼容性验证，采用条件测试（配置真实 key 才跑，否则跳过）或 mock |
+
+> 不采用 `protocol: deepseek` 独立协议：DeepSeek 与 OpenAI 协议同构，独立协议会引入薄封装冗余且偏离"兼容"事实。若未来 DeepSeek 出现超出 `OpenAIProvider` 兼容范围的差异，再评估是否拆分。
+
 ## 四、架构设计
 
 ### 4.1 模块结构

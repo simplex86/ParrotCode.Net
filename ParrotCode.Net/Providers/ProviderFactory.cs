@@ -12,6 +12,7 @@ public static class ProviderFactory
         return config.Protocol switch
         {
             "mock" => new MockProvider(),
+            // openai 协议同时服务 OpenAI 官方与 DeepSeek 等 OpenAI 兼容服务（由 BaseUrl 区分端点）。实现见迭代 3。
             "openai" or "anthropic" => throw new ProviderNotImplementedException(config),
             _ => throw new ArgumentException(
                 $"不支持的协议: {config.Protocol} (provider={config.Name})")
