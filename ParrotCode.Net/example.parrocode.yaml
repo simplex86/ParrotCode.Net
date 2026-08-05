@@ -1,0 +1,32 @@
+# ParrotCode.Net 配置示例。复制为 .parrocode.yaml 后按需修改。
+# .parrocode.yaml 已被 .gitignore 忽略，不会被提交。
+#
+# DeepSeek 为主测试目标（OpenAI 兼容协议，迭代 3 起可真实联调）；
+# OpenAI / Anthropic 保留兼容，需各自 key。
+
+# 当前激活的 provider 名称（对应下方 providers 中某项的 name）。
+# 省略时回退到 providers[0]。
+active_provider: deepseek
+
+providers:
+  - name: deepseek
+    protocol: openai
+    model: deepseek-chat
+    base_url: https://api.deepseek.com/v1
+    api_key: ${DEEPSEEK_API_KEY}
+
+  - name: mock
+    protocol: mock
+    model: mock-1
+
+  - name: openai
+    protocol: openai
+    model: gpt-4o-mini
+    base_url: https://api.openai.com/v1
+    api_key: ${OPENAI_API_KEY}
+
+  - name: claude
+    protocol: anthropic
+    model: claude-3-5-sonnet-20241022
+    base_url: https://api.anthropic.com
+    api_key: ${ANTHROPIC_API_KEY}

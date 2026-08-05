@@ -3,11 +3,14 @@ using ParrotCode;
 namespace ParrotCode.xUnit;
 
 /// <summary>
-/// ProviderFactory 单元测试：覆盖协议路由、未实现协议异常、未知协议异常、null 入参。
-/// 迭代 2a：仅 mock 协议返回实例；openai/anthropic 抛 ProviderNotImplementedException。
+/// ProviderFactory 单元测试：覆盖协议路由（Create）与配置驱动装配（CreateActive）。
+/// 迭代 2a：Create 的 mock/openai/anthropic/未知/null 路由。
+/// 迭代 2b：CreateActive 的 active_provider 选中、回退、未命中、空列表、null。
 /// </summary>
 public class ProviderFactoryTests
 {
+    // —— Create（迭代 2a）——
+
     [Fact]
     public void Create_WithMockProtocol_ReturnsMockProvider()
     {
@@ -67,6 +70,98 @@ public class ProviderFactoryTests
     public void Create_WithNullConfig_ThrowsArgumentNull()
     {
         var act = () => ProviderFactory.Create(null!);
+
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    // —— CreateActive（迭代 2b）——
+
+    [Fact]
+    public void CreateActive_ActiveHitsMock_ReturnsMockProvider()
+    {
+        var appConfig = new AppConfig
+        {
+            ActiveProvider = "mock",
+            Providers = new[]
+            {
+                new ProviderConfig { Name = "mock", Protocol = "mock", Model = "mock-1" }
+            }
+        };
+
+        var provider = ProviderFactory.CreateActive(appConfig);
+
+        provider.Should().BeOfType<MockProvider>();
+    }
+
+    [Fact]
+    public void CreateActive_ActiveHitsOpenAi_ThrowsNotImplemented()
+    {
+        var appConfig = new AppConfig
+        {
+            ActiveProvider = "deepseek",
+            Providers = new[]
+            {
+                new ProviderConfig { Name = "deepseek", Protocol = "openai", Model = "deepseek-chat" }
+            }
+        };
+
+        var act = () => ProviderFactory.CreateActive(appConfig);
+
+        act.Should().Throw<ProviderNotImplementedException>();
+    }
+
+    [Fact]
+    public void CreateActive_ActiveNotHit_ThrowsConfigException()
+    {
+        var appConfig = new AppConfig
+        {
+            ActiveProvider = "foo",
+            Providers = new[]
+            {
+                new ProviderConfig { Name = "mock", Protocol = "mock", Model = "m" }
+            }
+        };
+
+        var act = () => ProviderFactory.CreateActive(appConfig);
+
+        var ex = act.Should().Throw<ConfigException>().Which;
+        ex.Message.Should().Contain("active_provider 'foo'");
+    }
+
+    [Fact]
+    public void CreateActive_ActiveNull_FallsBackToFirst()
+    {
+        var appConfig = new AppConfig
+        {
+            ActiveProvider = null,
+            Providers = new[]
+            {
+                new ProviderConfig { Name = "first", Protocol = "mock", Model = "m1" },
+                new ProviderConfig { Name = "second", Protocol = "mock", Model = "m2" }
+            }
+        };
+
+        var provider = ProviderFactory.CreateActive(appConfig);
+
+        provider.Should().BeOfType<MockProvider>();
+        // 回退到 providers[0]；选中哪个由内部决定，此处仅确认未抛异常并返回实例
+    }
+
+    [Fact]
+    public void CreateActive_EmptyProviders_ThrowsConfigException()
+    {
+        var appConfig = new AppConfig { ActiveProvider = null, Providers = Array.Empty<ProviderConfig>() };
+
+        var act = () => ProviderFactory.CreateActive(appConfig);
+
+        var ex = act.Should().Throw<ConfigException>().Which;
+        ex.Message.Should().Contain("providers 不能为空");
+    }
+
+    [Fact]
+    public void CreateActive_NullConfig_ThrowsArgumentNull()
+    {
+        var act = () => ProviderFactory.CreateActive(null!);
 
         act.Should().Throw<ArgumentNullException>();
     }

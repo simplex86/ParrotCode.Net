@@ -18,6 +18,19 @@ public static class ProviderFactory
                 $"不支持的协议: {config.Protocol} (provider={config.Name})")
         };
     }
+
+    /// <summary>按 active_provider（回退 providers[0]）选中并创建。</summary>
+    public static IBaseProvider CreateActive(AppConfig appConfig)
+    {
+        ArgumentNullException.ThrowIfNull(appConfig);
+        if (appConfig.Providers.Count == 0)
+            throw new ConfigException("providers 不能为空");
+
+        var name = appConfig.ActiveProvider ?? appConfig.Providers[0].Name;
+        var pc = appConfig.Providers.FirstOrDefault(p => p.Name == name)
+            ?? throw new ConfigException($"active_provider '{name}' 未在 providers 中定义");
+        return Create(pc);
+    }
 }
 
 /// <summary>

@@ -2,12 +2,13 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
 using ParrotCode;
+using Spectre.Console;
 
 // Ctrl+C 触发取消令牌，由主循环优雅退出
 var cts = new CancellationTokenSource();
-Console.CancelKeyPress += (_, e) =>
+Console.CancelKeyPress += (_, evt) =>
 {
-    e.Cancel = true; // 阻止默认终止
+    evt.Cancel = true; // 阻止默认终止
     cts.Cancel();
 };
 
@@ -20,22 +21,57 @@ using var loggerFactory = LoggerFactory.Create(builder =>
         options.TimestampFormat = "HH:mm:ss ";
     });
     // 把所有日志路由到 stderr（Console.Error），与用户可见输出（stdout/Spectre）分离。
-    // LogToStandardErrorThreshold 表示 >= 该级别的日志写 stderr，设为 Trace 即全部走 stderr。
     builder.Services.Configure<ConsoleLoggerOptions>(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
     builder.SetMinimumLevel(LogLevel.Information);
 });
 var logger = loggerFactory.CreateLogger("ParrotCode");
 
-// 迭代 2a：硬编码 ProviderConfig 装配。迭代 2b 改由 ConfigLoader 从 YAML 加载。
-var providerConfig = new ProviderConfig
+AppConfig config;
+try
 {
-    Name = "mock",
-    Protocol = "mock",
-    Model = "mock-1"
-};
-var provider = ProviderFactory.Create(providerConfig);
-logger.LogInformation("使用 provider={Name} model={Model} protocol={Protocol}",
-    providerConfig.Name, providerConfig.Model, providerConfig.Protocol);
+    config = ConfigLoader.Load();
+}
+catch (ConfigException ex)
+{
+    AnsiConsole.MarkupLine($"[red]配置错误：[/]{Markup.Escape(ex.Message)}");
+    if (ex.SourcePath is not null)
+        AnsiConsole.MarkupLine($"[grey]  文件：{Markup.Escape(ex.SourcePath)}[/]");
+    if (ex.Line is not null)
+        AnsiConsole.MarkupLine($"[grey]  行：{ex.Line}{(ex.Column is null ? "" : $"，列：{ex.Column}")}[/]");
+    return 1;
+}
 
-var app = new App(provider, providerConfig, logger, cts.Token);
+ProviderConfig activeConfig;
+IBaseProvider provider;
+try
+{
+    provider = ProviderFactory.CreateActive(config);
+    // CreateActive 返回 IBaseProvider 但不返回选中的 ProviderConfig；App 启动横幅需要它，外部解析。
+    var activeName = config.ActiveProvider ?? config.Providers[0].Name;
+    activeConfig = config.Providers.First(p => p.Name == activeName);
+}
+catch (ProviderNotImplementedException ex)
+{
+    AnsiConsole.MarkupLine($"[yellow]提示：[/]{Markup.Escape(ex.Message)}");
+    return 1;
+}
+catch (ConfigException ex)
+{
+    AnsiConsole.MarkupLine($"[red]配置错误：[/]{Markup.Escape(ex.Message)}");
+    return 1;
+}
+catch (ArgumentException ex)
+{
+    AnsiConsole.MarkupLine($"[red]配置错误：[/]{Markup.Escape(ex.Message)}");
+    return 1;
+}
+
+logger.LogInformation("使用 provider={Name} model={Model} protocol={Protocol}",
+                      activeConfig.Name, 
+                      activeConfig.Model, 
+                      activeConfig.Protocol);  // 注意：不记 ApiKey
+
+var app = new App(provider, activeConfig, logger, cts.Token);
 await app.RunAsync();
+
+return 0;
