@@ -12,7 +12,7 @@ namespace ParrotCode;
 public static class ConfigLoader
 {
     public const string EnvVar = "PARROTCODE_CONFIG";
-    public const string CwdFileName = ".parrocode.yaml";
+    public const string CwdFileName = ".parrotcode.yaml";
     public const string UserDirName = ".parrotcode";
     public const string UserFileName = "config.yaml";
 
@@ -46,21 +46,19 @@ public static class ConfigLoader
         // 优先级 0：explicitPath（调用方明确指定，不存在则报错，不静默回退）
         if (explicitPath is not null)
         {
-            return File.Exists(explicitPath)
-                ? explicitPath
-                : throw new ConfigException($"指定的配置文件不存在: {explicitPath}", explicitPath);
+            return File.Exists(explicitPath) ? explicitPath
+                                             : throw new ConfigException($"指定的配置文件不存在: {explicitPath}", explicitPath);
         }
 
         // 优先级 1：环境变量 PARROTCODE_CONFIG（明确意图，不存在则报错）
         var envPath = Environment.GetEnvironmentVariable(EnvVar);
         if (!string.IsNullOrWhiteSpace(envPath))
         {
-            return File.Exists(envPath)
-                ? envPath
-                : throw new ConfigException($"环境变量 {EnvVar} 指向的文件不存在: {envPath}", envPath);
+            return File.Exists(envPath) ? envPath
+                                        : throw new ConfigException($"环境变量 {EnvVar} 指向的文件不存在: {envPath}", envPath);
         }
 
-        // 优先级 2：当前工作目录 .parrocode.yaml
+        // 优先级 2：当前工作目录 .parrotcode.yaml
         var cwdPath = Path.Combine(Environment.CurrentDirectory, CwdFileName);
         if (File.Exists(cwdPath)) return cwdPath;
 
@@ -80,22 +78,17 @@ public static class ConfigLoader
     private static AppConfig Parse(string path)
     {
         var text = File.ReadAllText(path);
-        if (string.IsNullOrWhiteSpace(text))
-            throw new ConfigException("配置文件为空", path);
+        if (string.IsNullOrWhiteSpace(text)) throw new ConfigException("配置文件为空", path);
 
-        var deserializer = new DeserializerBuilder()
-            .WithNamingConvention(UnderscoredNamingConvention.Instance) // snake_case ↔ PascalCase
-            .Build();
+        var deserializer = new DeserializerBuilder().WithNamingConvention(UnderscoredNamingConvention.Instance) // snake_case ↔ PascalCase
+                                                    .Build();
         try
         {
-            return deserializer.Deserialize<AppConfig>(text)
-                ?? throw new ConfigException("配置文件内容为 null", path);
+            return deserializer.Deserialize<AppConfig>(text) ?? throw new ConfigException("配置文件内容为 null", path);
         }
         catch (YamlException ex)
         {
-            throw new ConfigException(
-                $"YAML 解析失败: {ex.Message}",
-                path, (int)ex.Start.Line, (int)ex.Start.Column, ex);
+            throw new ConfigException($"YAML 解析失败: {ex.Message}", path, (int)ex.Start.Line, (int)ex.Start.Column, ex);
         }
     }
 
@@ -121,8 +114,7 @@ public static class ConfigLoader
         {
             var name = m.Groups[1].Value;
             var v = Environment.GetEnvironmentVariable(name);
-            if (string.IsNullOrEmpty(v))
-                throw new ConfigException($"环境变量 '{name}' 未设置（引用于 {fieldPath}）", sourcePath);
+            if (string.IsNullOrEmpty(v)) throw new ConfigException($"环境变量 '{name}' 未设置（引用于 {fieldPath}）", sourcePath);
             return v;
         });
     }
@@ -143,29 +135,24 @@ public static class ConfigLoader
             if (string.IsNullOrWhiteSpace(p.Protocol))
                 throw new ConfigException($"{prefix}.protocol 不能为空", sourcePath);
             if (!SupportedProtocols.Contains(p.Protocol))
-                throw new ConfigException(
-                    $"{prefix}.protocol '{p.Protocol}' 不支持（允许: mock/openai/anthropic）", sourcePath);
+                throw new ConfigException($"{prefix}.protocol '{p.Protocol}' 不支持（允许: mock/openai/anthropic）", sourcePath);
         }
 
         // name 唯一性（报告第一组重复及其索引）
-        var duplicate = config.Providers
-            .Select((p, i) => (p.Name, Index: i))
-            .GroupBy(x => x.Name, StringComparer.Ordinal)
-            .FirstOrDefault(g => g.Count() > 1);
+        var duplicate = config.Providers.Select((p, i) => (p.Name, Index: i))
+                                        .GroupBy(x => x.Name, StringComparer.Ordinal)
+                                        .FirstOrDefault(g => g.Count() > 1);
         if (duplicate is not null)
         {
             var indices = duplicate.Select(x => x.Index).OrderBy(x => x).ToArray();
-            throw new ConfigException(
-                $"providers 名称重复: '{duplicate.Key}' (providers[{indices[0]}] 与 providers[{indices[1]}])",
-                sourcePath);
+            throw new ConfigException($"providers 名称重复: '{duplicate.Key}' (providers[{indices[0]}] 与 providers[{indices[1]}])", sourcePath);
         }
 
         // active_provider 命中（为 null 时回退 providers[0]，不报错）
-        if (config.ActiveProvider is not null
-            && !config.Providers.Any(p => p.Name == config.ActiveProvider))
+        if (config.ActiveProvider is not null && 
+            !config.Providers.Any(p => p.Name == config.ActiveProvider))
         {
-            throw new ConfigException(
-                $"active_provider '{config.ActiveProvider}' 未在 providers 中定义", sourcePath);
+            throw new ConfigException($"active_provider '{config.ActiveProvider}' 未在 providers 中定义", sourcePath);
         }
 
         return config;

@@ -9,11 +9,11 @@
 把迭代 2a 中**硬编码**的 `ProviderConfig` 来源，替换为**从 YAML 加载**：三级发现（环境变量 > 项目目录 > 用户目录）+ YamlDotNet 解析 + 语义校验 + `${VAR}` 环境变量展开 + 带行号的错误报告。
 
 本迭代**刻意保持**：
-- **不做**真实 LLM HTTP 调用（迭代 3）。`openai`/`anthropic` 协议在工厂仍抛 `ProviderNotImplementedException`——因此本迭代运行时验证以 **mock** 配置为主；`example.parrocode.yaml` 里 DeepSeek 为主推示例，但 2b 阶段把 `active_provider` 指向 deepseek 会得到"将在迭代 3 实现"提示并退出（这是预期行为，用于验证配置加载成功选中 + 工厂异常路径）。
+- **不做**真实 LLM HTTP 调用（迭代 3）。`openai`/`anthropic` 协议在工厂仍抛 `ProviderNotImplementedException`——因此本迭代运行时验证以 **mock** 配置为主；`example.parrotcode.yaml` 里 DeepSeek 为主推示例，但 2b 阶段把 `active_provider` 指向 deepseek 会得到"将在迭代 3 实现"提示并退出（这是预期行为，用于验证配置加载成功选中 + 工厂异常路径）。
 - **不改** `IBaseProvider` / `Message` / `MockProvider` / `App` 的签名（2a 已立好）。本迭代只改 `Program` 装配来源 + 新增 `Config/` 三个文件 + 给 `ProviderFactory` 加 `CreateActive`。
 - **不做**配置热重载、`Microsoft.Extensions.Configuration` 接入（进阶练习）。
 
-> 命名说明：`plan.md` 中配置文件名写作 `parrocode.yaml`（缺 `t`），而环境变量写作 `PARROTCODE_CONFIG`（含 `t`），二者不一致。本迭代统一采用 **`parrotcode`**（与项目名 `ParrotCode.Net`、环境变量 `PARROTCODE_CONFIG` 一致）。配置文件名为 `.parrocode.yaml`（与 plan.md 字面一致，仅作文件名）。
+> 命名说明：`plan.md` 中配置文件名写作 `parrotcode.yaml`（缺 `t`），而环境变量写作 `PARROTCODE_CONFIG`（含 `t`），二者不一致。本迭代统一采用 **`parrotcode`**（与项目名 `ParrotCode.Net`、环境变量 `PARROTCODE_CONFIG` 一致）。配置文件名为 `.parrotcode.yaml`（与 plan.md 字面一致，仅作文件名）。
 
 ## 二、学习目标
 
@@ -34,8 +34,8 @@
 | 配置加载器 | `ConfigLoader`：三级发现 + YamlDotNet 解析 + 校验 + `${VAR}` 展开 |
 | 工厂扩展 | `ProviderFactory.CreateActive(AppConfig)`：按 `active_provider`（回退 `providers[0]`）选中并创建 |
 | Program 装配 | `ConfigLoader.Load()` → `CreateActive`，加 `try/catch` 友好退出（退出码 1） |
-| 示例配置 | `example.parrocode.yaml`（tracked，DeepSeek 主推）+ `.parrocode.yaml`（gitignored） |
-| .gitignore | 忽略 `.parrocode.yaml`，保留 `example.parrocode.yaml` |
+| 示例配置 | `example.parrotcode.yaml`（tracked，DeepSeek 主推）+ `.parrotcode.yaml`（gitignored） |
+| .gitignore | 忽略 `.parrotcode.yaml`，保留 `example.parrotcode.yaml` |
 | 移除占位 | 删除 `appsettings.json` 及其 csproj `None` 项（被 YAML 取代） |
 | 依赖 | 新增 `YamlDotNet` |
 
@@ -73,7 +73,7 @@ ParrotCode.Net/
 │   └── Loader.cs              # 新增：三级发现 + 解析 + 校验 + ${VAR} 展开
 ├── Providers/
 │   └── ProviderFactory.cs     # 追加 CreateActive(AppConfig)
-├── example.parrocode.yaml     # 新增（tracked，DeepSeek 主推）
+├── example.parrotcode.yaml     # 新增（tracked，DeepSeek 主推）
 └── ParrotCode.Net.csproj      # 加 YamlDotNet；删 appsettings.json 项
 ```
 
@@ -82,7 +82,7 @@ ParrotCode.Net/
 ### 4.2 调用流程
 
 ```
-┌─────────┐  PARROTCODE_CONFIG / .parrocode.yaml / ~/.parrotcode/config.yaml
+┌─────────┐  PARROTCODE_CONFIG / .parrotcode.yaml / ~/.parrotcode/config.yaml
 │  启动   │ ────────────────────────────────────────────────────▶ ┌──────────────┐
 │ Program │ ◀──────────────────────── AppConfig (含 active+list) ┤ ConfigLoader │
 └────┬────┘                                                       └──────────────┘
@@ -121,7 +121,7 @@ await app.RunAsync()
 ```csharp
 namespace ParrotCode;
 
-/// <summary>顶层配置，对应 .parrocode.yaml 的根结构。</summary>
+/// <summary>顶层配置，对应 .parrotcode.yaml 的根结构。</summary>
 public sealed record AppConfig
 {
     /// <summary>当前激活的 Provider 名称；为 null 时回退到 providers[0].name。</summary>
@@ -172,7 +172,7 @@ namespace ParrotCode;
 public static class ConfigLoader
 {
     public const string EnvVar = "PARROTCODE_CONFIG";
-    public const string CwdFileName = ".parrocode.yaml";
+    public const string CwdFileName = ".parrotcode.yaml";
     public const string UserDirName = ".parrotcode";
     public const string UserFileName = "config.yaml";
 
@@ -285,7 +285,7 @@ return 0;
 | --- | --- | --- | --- |
 | 0（最高） | `explicitPath` 参数 | 调用方指定 | 抛 `ConfigException("指定的配置文件不存在: ...")` |
 | 1 | 环境变量 | `$PARROTCODE_CONFIG` 指向的路径 | 抛 `ConfigException("环境变量 PARROTCODE_CONFIG 指向的文件不存在: ...")` |
-| 2 | 项目目录 | `$(pwd)/.parrocode.yaml` | 继续下一级 |
+| 2 | 项目目录 | `$(pwd)/.parrotcode.yaml` | 继续下一级 |
 | 3 | 用户目录 | `~/.parrotcode/config.yaml` | 返回 null → 用默认 mock 配置 |
 
 > - 环境变量与 `explicitPath` 指向不存在路径是**错误**（用户明确意图落空），不是静默回退。
@@ -324,7 +324,7 @@ private static AppConfig Parse(string path)
 
 ```
 配置错误：YAML 解析失败: (Line: 5, Col: 3) ...
-  文件：D:\proj\.parrocode.yaml
+  文件：D:\proj\.parrotcode.yaml
   行：5，列：3
 ```
 
@@ -371,7 +371,7 @@ private static string ExpandEnv(string value, string fieldPath, string sourcePat
 
 - **ApiKey 来源**：YAML 字段或 `${ENV_VAR}`，不进代码。
 - **日志掩码**：任何地方记录 provider 信息时，只记 `Name` / `Model` / `Protocol`，**禁止**记 `ApiKey`。若需提示 key 状态，掩码为 `sk-***1234`（前缀 + 后 4 位）或仅记"已设置/未设置"。
-- **.gitignore**：忽略 `.parrocode.yaml` 与 `~/.parrotcode/`，保留 `example.parrocode.yaml`。
+- **.gitignore**：忽略 `.parrotcode.yaml` 与 `~/.parrotcode/`，保留 `example.parrotcode.yaml`。
 - **错误信息**：配置错误信息只显示字段路径，不回显 ApiKey 原文。
 
 ## 五、依赖变更
@@ -396,11 +396,11 @@ private static string ExpandEnv(string value, string fieldPath, string sourcePat
 
 ## 六、配置文件
 
-### 6.1 `example.parrocode.yaml`（tracked，DeepSeek 主推）
+### 6.1 `example.parrotcode.yaml`（tracked，DeepSeek 主推）
 
 ```yaml
-# ParrotCode.Net 配置示例。复制为 .parrocode.yaml 后按需修改。
-# .parrocode.yaml 已被 .gitignore 忽略，不会被提交。
+# ParrotCode.Net 配置示例。复制为 .parrotcode.yaml 后按需修改。
+# .parrotcode.yaml 已被 .gitignore 忽略，不会被提交。
 #
 # DeepSeek 为主测试目标（OpenAI 兼容协议，迭代 3 起可真实联调）；
 # OpenAI / Anthropic 保留兼容，需各自 key。
@@ -438,13 +438,13 @@ providers:
 > - 2b 阶段若把 `active_provider` 指向 `deepseek`，工厂抛 `ProviderNotImplementedException`（迭代 3 实现后可用）；指向 `mock` 则正常跑。
 > - 所有 `api_key` 用 `${...}` 占位，无明文。
 
-### 6.2 `.parrocode.yaml`（gitignored，用户实际配置）
+### 6.2 `.parrotcode.yaml`（gitignored，用户实际配置）
 
 用户按需从 example 复制并填写真实 key（或设环境变量）。本迭代验收阶段会临时创建/删除它。
 
 ### 6.3 移除 `appsettings.json`
 
-迭代 1 的 `appsettings.json` 是占位，本迭代被 YAML 取代。日志配置仍保留在 `Program.cs` 代码中（迭代 1 已如此）。若后续想让日志级别走配置，放进 `.parrocode.yaml` 的 `logging` 节即可，不在本迭代做。
+迭代 1 的 `appsettings.json` 是占位，本迭代被 YAML 取代。日志配置仍保留在 `Program.cs` 代码中（迭代 1 已如此）。若后续想让日志级别走配置，放进 `.parrotcode.yaml` 的 `logging` 节即可，不在本迭代做。
 
 ## 七、迁移说明（迭代 2a → 迭代 2b）
 
@@ -470,7 +470,7 @@ providers:
 | `explicitPath` 指向不存在文件 | 抛 `ConfigException`，消息含路径 |
 | `PARROTCODE_CONFIG` 指向合法文件 | 优先于 cwd/home |
 | `PARROTCODE_CONFIG` 指向不存在文件 | 抛 `ConfigException` |
-| cwd 有 `.parrocode.yaml` | 优先于 home |
+| cwd 有 `.parrotcode.yaml` | 优先于 home |
 | 仅 home 有 `~/.parrotcode/config.yaml` | 加载它（用 explicitPath 模拟，避免污染本机用户目录） |
 | YAML 语法错误（缩进/非法字符） | 抛 `ConfigException`，`Line` 非 null |
 | YAML 缺 `name` 字段 | 抛 `ConfigException`，消息含 `providers[0].name` |
@@ -482,7 +482,7 @@ providers:
 | 空文件（仅空白） | 抛 `ConfigException("配置文件为空")` |
 | `protocol: foo` | 抛 `ConfigException`，消息含允许集合 |
 
-> 测试隔离：每个用例建临时目录写 `.parrocode.yaml`，用 `ConfigLoader.Load(explicitPath)` 注入，避免污染开发者本机配置。涉及环境变量的用例用 `Environment.SetEnvironmentVariable` 设置并在 `finally` 还原；涉及 home 目录的用 `explicitPath` 模拟，不真写用户目录。
+> 测试隔离：每个用例建临时目录写 `.parrotcode.yaml`，用 `ConfigLoader.Load(explicitPath)` 注入，避免污染开发者本机配置。涉及环境变量的用例用 `Environment.SetEnvironmentVariable` 设置并在 `finally` 还原；涉及 home 目录的用 `explicitPath` 模拟，不真写用户目录。
 
 ### 8.2 `ProviderFactoryTests`（2a 已有 6 用例，2b 补充 CreateActive）
 
@@ -514,15 +514,15 @@ providers:
 ### 9.2 配置三级发现
 
 - [ ] 删除 cwd 与 home 配置、未设环境变量：`dotnet run` 用默认 mock 配置正常工作。
-- [ ] 在 cwd 放 `.parrocode.yaml`（`active_provider: mock` + 一个 mock provider），程序读取它（横幅显示新 name/model）。
-- [ ] 设 `PARROTCODE_CONFIG` 指向另一份 YAML：优先级高于 cwd 的 `.parrocode.yaml`。
+- [ ] 在 cwd 放 `.parrotcode.yaml`（`active_provider: mock` + 一个 mock provider），程序读取它（横幅显示新 name/model）。
+- [ ] 设 `PARROTCODE_CONFIG` 指向另一份 YAML：优先级高于 cwd 的 `.parrotcode.yaml`。
 - [ ] `PARROTCODE_CONFIG` 指向不存在的路径：程序打印"环境变量 ... 指向的文件不存在"并退出码 1。
 - [ ] 删除 cwd 配置，在 `~/.parrotcode/config.yaml` 放一份：程序读取它。
 - [ ] 跨平台：Windows 与 macOS/Linux 下用户目录发现均工作。
 
 ### 9.3 YAML 错误报告（带行号）
 
-- [ ] 故意把 `.parrocode.yaml` 写成缩进错误（如 `providers:` 下项不缩进）：错误信息包含**行号**（如"行：3"）。
+- [ ] 故意把 `.parrotcode.yaml` 写成缩进错误（如 `providers:` 下项不缩进）：错误信息包含**行号**（如"行：3"）。
 - [ ] 故意漏写 `name` 字段：错误信息指明 `providers[0].name`。
 - [ ] 两个 provider 同名：错误信息指明重复的 name 与索引。
 - [ ] `active_provider: foo`（foo 不存在）：错误信息指明 `active_provider 'foo'`。
@@ -531,9 +531,9 @@ providers:
 
 ### 9.4 Provider 切换（含 DeepSeek 主推）
 
-- [ ] `example.parrocode.yaml` 含 `deepseek` 配置（`protocol: openai`、`base_url: https://api.deepseek.com/v1`、`api_key: ${DEEPSEEK_API_KEY}`），且 `active_provider: deepseek`。
+- [ ] `example.parrotcode.yaml` 含 `deepseek` 配置（`protocol: openai`、`base_url: https://api.deepseek.com/v1`、`api_key: ${DEEPSEEK_API_KEY}`），且 `active_provider: deepseek`。
 - [ ] 配置两个 mock provider（`mock-a` / `mock-b`，不同 model），切换 `active_provider`，启动横幅显示对应 name/model。
-- [ ] 把 `.parrocode.yaml` 的 `active_provider` 指向一个 `protocol: openai` 的 provider（如 deepseek）：程序打印"将在迭代 3 实现，本迭代仅支持 mock"并退出码 1（不崩溃、不静默）——验证配置加载成功选中 + 工厂异常路径。
+- [ ] 把 `.parrotcode.yaml` 的 `active_provider` 指向一个 `protocol: openai` 的 provider（如 deepseek）：程序打印"将在迭代 3 实现，本迭代仅支持 mock"并退出码 1（不崩溃、不静默）——验证配置加载成功选中 + 工厂异常路径。
 - [ ] `active_provider` 省略：回退 `providers[0]`，stderr 有 warning 日志。
 
 ### 9.5 环境变量展开
@@ -546,8 +546,8 @@ providers:
 
 - [ ] `dotnet run` 全程 stderr 日志**不**出现 ApiKey 明文。
 - [ ] 启动横幅与错误信息**不**回显 ApiKey。
-- [ ] `.gitignore` 包含 `.parrocode.yaml`；`example.parrocode.yaml` 不被忽略。
-- [ ] `example.parrocode.yaml` 中所有 `api_key` 用 `${...}` 占位，无明文 key。
+- [ ] `.gitignore` 包含 `.parrotcode.yaml`；`example.parrotcode.yaml` 不被忽略。
+- [ ] `example.parrotcode.yaml` 中所有 `api_key` 用 `${...}` 占位，无明文 key。
 
 ### 9.7 迁移与回归
 
@@ -594,11 +594,11 @@ providers:
 - [ ] `ParrotCode.Net/Config/Loader.cs`（新增）
 - [ ] `ParrotCode.Net/Providers/ProviderFactory.cs`（追加 `CreateActive`）
 - [ ] `ParrotCode.Net/Program.cs`（装配走配置 + try/catch）
-- [ ] `ParrotCode.Net/example.parrocode.yaml`（DeepSeek 主推）
+- [ ] `ParrotCode.Net/example.parrotcode.yaml`（DeepSeek 主推）
 - [ ] `ParrotCode.Net/ParrotCode.Net.csproj`（加 YamlDotNet，删 appsettings 项）
 - [ ] 删除 `ParrotCode.Net/appsettings.json`
 - [ ] `ParrotCode.Net-xUnit/ConfigLoaderTests.cs`（新增）
 - [ ] `ParrotCode.Net-xUnit/ProviderFactoryTests.cs`（补充 CreateActive 用例）
-- [ ] `.gitignore` 加 `.parrocode.yaml`
+- [ ] `.gitignore` 加 `.parrotcode.yaml`
 - [ ] 演示：三级发现切换 + YAML 错误截图 + `dotnet test` 全绿截图
 - [ ] 本文档状态改为 `[已完成]`

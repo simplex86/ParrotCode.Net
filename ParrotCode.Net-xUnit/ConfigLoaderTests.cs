@@ -71,7 +71,7 @@ public class ConfigLoaderTests
     public void Load_WithExplicitPath_Valid_LoadsFile()
     {
         using var dir = new TestDir();
-        var path = dir.WriteFile(".parrocode.yaml", ValidMockYaml);
+        var path = dir.WriteFile(".parrotcode.yaml", ValidMockYaml);
 
         var config = ConfigLoader.Load(path);
 
@@ -100,7 +100,7 @@ public class ConfigLoaderTests
     {
         using var dir = new TestDir();
         var path = dir.WriteFile("env.yaml", ValidMockYaml);
-        // 临时改 cwd 到空目录，避免 cwd 的 .parrocode.yaml 干扰
+        // 临时改 cwd 到空目录，避免 cwd 的 .parrotcode.yaml 干扰
         using var scope = new Scope(EnvVar, path, tempCwd: dir.Dir);
 
         var config = ConfigLoader.Load();
@@ -127,7 +127,7 @@ public class ConfigLoaderTests
     {
         using var dir = new TestDir();
         var envPath = dir.WriteFile("env.yaml", "active_provider: env-mock\nproviders:\n  - name: env-mock\n    protocol: mock\n    model: m-env\n");
-        dir.WriteFile(".parrocode.yaml", "active_provider: cwd-mock\nproviders:\n  - name: cwd-mock\n    protocol: mock\n    model: m-cwd\n");
+        dir.WriteFile(".parrotcode.yaml", "active_provider: cwd-mock\nproviders:\n  - name: cwd-mock\n    protocol: mock\n    model: m-cwd\n");
         using var scope = new Scope(EnvVar, envPath, tempCwd: dir.Dir);
 
         var config = ConfigLoader.Load();
@@ -141,7 +141,7 @@ public class ConfigLoaderTests
     public void Load_CwdFile_LoadsWhenNoEnvNoExplicit()
     {
         using var dir = new TestDir();
-        dir.WriteFile(".parrocode.yaml", ValidMockYaml);
+        dir.WriteFile(".parrotcode.yaml", ValidMockYaml);
         using var scope = new Scope(EnvVar, envValue: null, tempCwd: dir.Dir);
 
         var config = ConfigLoader.Load();
@@ -176,7 +176,7 @@ public class ConfigLoaderTests
         // 上面其实合法；改用真正非法的：tab 缩进或重复键
         badYaml = "active_provider: mock\nactive_provider: mock2\nproviders: [}\n";
         using var dir = new TestDir();
-        var path = dir.WriteFile(".parrocode.yaml", badYaml);
+        var path = dir.WriteFile(".parrotcode.yaml", badYaml);
 
         var act = () => ConfigLoader.Load(path);
 
@@ -189,7 +189,7 @@ public class ConfigLoaderTests
     public void Load_EmptyFile_Throws()
     {
         using var dir = new TestDir();
-        var path = dir.WriteFile(".parrocode.yaml", "   \n  \n");
+        var path = dir.WriteFile(".parrotcode.yaml", "   \n  \n");
 
         var act = () => ConfigLoader.Load(path);
 
@@ -208,7 +208,7 @@ public class ConfigLoaderTests
                 model: m
             """;
         using var dir = new TestDir();
-        var path = dir.WriteFile(".parrocode.yaml", yaml);
+        var path = dir.WriteFile(".parrotcode.yaml", yaml);
 
         var act = () => ConfigLoader.Load(path);
 
@@ -229,7 +229,7 @@ public class ConfigLoaderTests
                 model: m2
             """;
         using var dir = new TestDir();
-        var path = dir.WriteFile(".parrocode.yaml", yaml);
+        var path = dir.WriteFile(".parrotcode.yaml", yaml);
 
         var act = () => ConfigLoader.Load(path);
 
@@ -249,7 +249,7 @@ public class ConfigLoaderTests
                 model: m
             """;
         using var dir = new TestDir();
-        var path = dir.WriteFile(".parrocode.yaml", yaml);
+        var path = dir.WriteFile(".parrotcode.yaml", yaml);
 
         var act = () => ConfigLoader.Load(path);
 
@@ -270,7 +270,7 @@ public class ConfigLoaderTests
                 model: m2
             """;
         using var dir = new TestDir();
-        var path = dir.WriteFile(".parrocode.yaml", yaml);
+        var path = dir.WriteFile(".parrotcode.yaml", yaml);
 
         var config = ConfigLoader.Load(path);
 
@@ -289,7 +289,7 @@ public class ConfigLoaderTests
                 model: m
             """;
         using var dir = new TestDir();
-        var path = dir.WriteFile(".parrocode.yaml", yaml);
+        var path = dir.WriteFile(".parrotcode.yaml", yaml);
 
         var act = () => ConfigLoader.Load(path);
 
@@ -315,7 +315,7 @@ public class ConfigLoaderTests
                 "    base_url: https://api.deepseek.com/v1\n" +
                 "    api_key: ${" + varName + "}\n";
             using var dir = new TestDir();
-            var path = dir.WriteFile(".parrocode.yaml", yaml);
+            var path = dir.WriteFile(".parrotcode.yaml", yaml);
 
             var config = ConfigLoader.Load(path);
 
@@ -340,7 +340,7 @@ public class ConfigLoaderTests
             "    base_url: https://api.deepseek.com/v1\n" +
             "    api_key: ${" + varName + "}\n";
         using var dir = new TestDir();
-        var path = dir.WriteFile(".parrocode.yaml", yaml);
+        var path = dir.WriteFile(".parrotcode.yaml", yaml);
 
         var act = () => ConfigLoader.Load(path);
 

@@ -92,7 +92,7 @@ ParrotCode.Net/
 ### 交付物
 - `config/` 模块：YAML 加载 + `AppConfig` / `ProviderConfig` 数据模型。
 - `providers/IBaseProvider` 抽象接口 + `ToolCall` / `Message` 类型 + 工厂方法。
-- `parrocode.yaml` 示例配置（参照 MewCode 的 `example.mewcode.yaml`）。
+- `parrotcode.yaml` 示例配置（参照 MewCode 的 `example.mewcode.yaml`）。
 
 ### 影响文件
 ```
@@ -106,12 +106,12 @@ ParrotCode.Net/
 │   ├── ToolCall.cs            # record ToolCall(string Id, string Name, JsonElement Input)
 │   ├── MessageTypes.cs        # Message 类型（用 JsonNode 或 record）
 │   └── ProviderFactory.cs     # 按 protocol 字段路由
-├── example.parrocode.yaml
+├── example.parrotcode.yaml
 └── Program.cs                 # 接入配置加载
 ```
 
 ### 关键设计点
-- **配置发现顺序**：`PARROTCODE_CONFIG` 环境变量 → `./.parrocode.yaml` → `~/.parrocode/config.yaml`，与 MewCode 一致。
+- **配置发现顺序**：`PARROTCODE_CONFIG` 环境变量 → `./.parrotcode.yaml` → `~/.parrocode/config.yaml`，与 MewCode 一致。
 - `ProviderConfig` 字段：`Name / Protocol / Model / BaseUrl / ApiKey`。
 - `IBaseProvider` 接口先只声明 `Task<string> ChatAsync(...)` 非流式版本，流式在迭代 3 加。
 - 工厂方法用 `switch` 表达式按 `Protocol` 路由，未支持的协议抛 `ArgumentException`。

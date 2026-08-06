@@ -16,7 +16,7 @@
 - **不做**多轮历史（迭代 4）。`IBaseProvider.ChatAsync` 形参虽为 `IReadOnlyList<Message>`，但本迭代 App 只构造单元素列表。
 - **不做**工具调用闭环（迭代 5/6）。`ToolCall` 类型仅定义、不使用。
 
-> 命名说明：`plan.md` 中配置文件名写作 `parrocode.yaml`（缺 `t`），而环境变量写作 `PARROTCODE_CONFIG`（含 `t`），二者不一致。本迭代统一采用 **`parrotcode`**（与项目名 `ParrotCode.Net`、环境变量 `PARROTCODE_CONFIG`、MewCode 的 `mewcode.yaml` 命名规律一致）。若需改回 `parrocode`，全局替换即可。
+> 命名说明：`plan.md` 中配置文件名写作 `parrotcode.yaml`（缺 `t`），而环境变量写作 `PARROTCODE_CONFIG`（含 `t`），二者不一致。本迭代统一采用 **`parrotcode`**（与项目名 `ParrotCode.Net`、环境变量 `PARROTCODE_CONFIG`、MewCode 的 `mewcode.yaml` 命名规律一致）。若需改回 `parrocode`，全局替换即可。
 
 ## 二、学习目标
 
@@ -38,10 +38,10 @@
 | Provider 抽象 | `IBaseProvider`（非流式），替代迭代 1 的 `IChatProvider` |
 | 消息类型 | `Message` / `MessageRole` / `ToolCall`（仅定义，本迭代不用于工具调用） |
 | Provider 工厂 | `ProviderFactory`：按 `Protocol` 路由；未实现协议抛 `ProviderNotImplementedException` |
-| 示例配置 | `example.parrocode.yaml`（tracked）+ `.parrocode.yaml`（gitignored，用户实际配置） |
+| 示例配置 | `example.parrotcode.yaml`（tracked）+ `.parrotcode.yaml`（gitignored，用户实际配置） |
 | App/Program 接入 | 启动时加载配置 → 选 active provider → 打印选中信息 → 主循环沿用迭代 1 |
 | 迁移 | 移除 `IChatProvider`，`MockProvider` 改实现 `IBaseProvider`，更新其单测 |
-| .gitignore | 忽略 `.parrocode.yaml`，保留 `example.parrocode.yaml` |
+| .gitignore | 忽略 `.parrotcode.yaml`，保留 `example.parrotcode.yaml` |
 
 ### 3.2 本迭代不包含（Out of Scope）
 
@@ -70,7 +70,7 @@ ParrotCode.Net/
 │   ├── MockProvider.cs        # 改实现 IBaseProvider
 │   ├── MessageTypes.cs        # MessageRole / Message / ToolCall
 │   └── ProviderFactory.cs     # 按 Protocol 路由 + 按 Name 解析 active
-├── example.parrocode.yaml     # 示例配置（tracked）
+├── example.parrotcode.yaml     # 示例配置（tracked）
 └── ParrotCode.Net.csproj      # 新增 YamlDotNet；移除 appsettings.json 项
 ```
 
@@ -79,7 +79,7 @@ ParrotCode.Net/
 ### 4.2 调用流程
 
 ```
-┌─────────┐  PARROTCODE_CONFIG / .parrocode.yaml / ~/.parrotcode/config.yaml
+┌─────────┐  PARROTCODE_CONFIG / .parrotcode.yaml / ~/.parrotcode/config.yaml
 │  启动   │ ────────────────────────────────────────────────────▶ ┌──────────────┐
 │ Program │ ◀──────────────────────── AppConfig (含 active+list) ┤ ConfigLoader │
 └────┬────┘                                                       └──────────────┘
@@ -164,7 +164,7 @@ public interface IBaseProvider
 ```csharp
 namespace ParrotCode;
 
-/// <summary>顶层配置，对应 .parrocode.yaml 的根结构。</summary>
+/// <summary>顶层配置，对应 .parrotcode.yaml 的根结构。</summary>
 public sealed record AppConfig
 {
     /// <summary>当前激活的 Provider 名称；为 null 时回退到 providers[0].name。</summary>
@@ -220,7 +220,7 @@ namespace ParrotCode;
 public static class ConfigLoader
 {
     public const string EnvVar = "PARROTCODE_CONFIG";
-    public const string CwdFileName = ".parrocode.yaml";
+    public const string CwdFileName = ".parrotcode.yaml";
     public const string UserDirName = ".parrotcode";
     public const string UserFileName = "config.yaml";
 
@@ -378,7 +378,7 @@ return 0;
 | --- | --- | --- | --- |
 | 0（最高） | `explicitPath` 参数 | 调用方指定 | 抛 `ConfigException("指定的配置文件不存在: ...")` |
 | 1 | 环境变量 | `$PARROTCODE_CONFIG` 指向的路径 | 抛 `ConfigException("环境变量 PARROTCODE_CONFIG 指向的文件不存在: ...")` |
-| 2 | 项目目录 | `$(pwd)/.parrocode.yaml` | 继续下一级 |
+| 2 | 项目目录 | `$(pwd)/.parrotcode.yaml` | 继续下一级 |
 | 3 | 用户目录 | `~/.parrotcode/config.yaml` | 返回 null → 用默认 mock 配置 |
 
 > - 环境变量与 explicitPath 指向不存在路径是**错误**（用户明确意图落空），不是静默回退。
@@ -416,7 +416,7 @@ private static AppConfig Parse(string path)
 
 ```
 配置错误：YAML 解析失败: (Line: 5, Col: 3) ...
-  文件：D:\proj\.parrocode.yaml
+  文件：D:\proj\.parrotcode.yaml
   行：5,列：3
 ```
 
@@ -464,7 +464,7 @@ private static string ExpandEnv(string value, string fieldPath, string sourcePat
 
 - **ApiKey 来源**：YAML 字段或 `${ENV_VAR}`，不进代码。
 - **日志掩码**：任何地方记录 provider 信息时，只记 `Name` / `Model` / `Protocol`，**禁止**记 `ApiKey`。若需提示 key 状态，掩码为 `sk-***1234`（前缀 + 后 4 位）或仅记"已设置/未设置"。
-- **.gitignore**：忽略 `.parrocode.yaml` 与 `~/.parrotcode/`，保留 `example.parrocode.yaml`。
+- **.gitignore**：忽略 `.parrotcode.yaml` 与 `~/.parrotcode/`，保留 `example.parrotcode.yaml`。
 - **错误信息**：配置错误信息只显示字段路径，不回显 ApiKey 原文。
 
 ## 五、依赖变更
@@ -485,11 +485,11 @@ private static string ExpandEnv(string value, string fieldPath, string sourcePat
 
 ## 六、配置文件
 
-### 6.1 `example.parrocode.yaml`（tracked）
+### 6.1 `example.parrotcode.yaml`（tracked）
 
 ```yaml
-# ParrotCode.Net 配置示例。复制为 .parrocode.yaml 后按需修改。
-# .parrocode.yaml 已被 .gitignore 忽略，不会被提交。
+# ParrotCode.Net 配置示例。复制为 .parrotcode.yaml 后按需修改。
+# .parrotcode.yaml 已被 .gitignore 忽略，不会被提交。
 
 # 当前激活的 provider 名称（对应下方 providers 中某项的 name）。
 # 省略时回退到 providers[0]。
@@ -513,13 +513,13 @@ providers:
     api_key: ${DEEPSEEK_API_KEY}
 ```
 
-### 6.2 `.parrocode.yaml`（gitignored，用户实际配置）
+### 6.2 `.parrotcode.yaml`（gitignored，用户实际配置）
 
 用户按需从 example 复制并填写真实 key。本迭代验收阶段会临时创建/删除它。
 
 ### 6.3 移除 `appsettings.json`
 
-迭代 1 的 `appsettings.json` 是占位，本迭代被 YAML 取代。日志配置仍保留在 `Program.cs` 代码中（迭代 1 已如此）。若后续想让日志级别走配置，放进 `.parrocode.yaml` 的 `logging` 节即可，不在本迭代做。
+迭代 1 的 `appsettings.json` 是占位，本迭代被 YAML 取代。日志配置仍保留在 `Program.cs` 代码中（迭代 1 已如此）。若后续想让日志级别走配置，放进 `.parrotcode.yaml` 的 `logging` 节即可，不在本迭代做。
 
 ## 七、迁移说明（迭代 1 → 迭代 2）
 
@@ -529,7 +529,7 @@ providers:
 | `MockProvider : IChatProvider` | `MockProvider : IBaseProvider` | 改实现；入参 `string` → `IReadOnlyList<Message>`，取最后一条 user 回显 |
 | `App(IChatProvider, ILogger, CT)` | `App(IBaseProvider, ProviderConfig, ILogger, CT)` | 多传一个 `ProviderConfig` 用于启动横幅 |
 | `Program.cs` 直接 `new MockProvider()` | `ConfigLoader.Load()` → `ProviderFactory.CreateActive()` | 装配走配置 |
-| `appsettings.json` | `.parrocode.yaml` + `example.parrocode.yaml` | 删除 `appsettings.json` 及其 csproj 项 |
+| `appsettings.json` | `.parrotcode.yaml` + `example.parrotcode.yaml` | 删除 `appsettings.json` 及其 csproj 项 |
 | `MockProviderTests.cs`（9 个用例，签名 `ChatAsync(string, CT)`） | 改为 `ChatAsync(new[]{Message(User, ...)}, CT)` | **全部用例同步迁移**，断言不变（仍是 `{输入}（mock）`） |
 
 迁移后回归不变式：`dotnet run` 输入 `你好` 仍输出 `你好（mock）`；Ctrl+C 仍干净退出。
@@ -545,7 +545,7 @@ providers:
 | `explicitPath` 指向不存在文件 | 抛 `ConfigException`，消息含路径 |
 | `PARROTCODE_CONFIG` 指向合法文件 | 优先于 cwd/home |
 | `PARROTCODE_CONFIG` 指向不存在文件 | 抛 `ConfigException` |
-| cwd 有 `.parrocode.yaml` | 优先于 home |
+| cwd 有 `.parrotcode.yaml` | 优先于 home |
 | 仅 home 有 `~/.parrotcode/config.yaml` | 加载它 |
 | YAML 语法错误（缩进/非法字符） | 抛 `ConfigException`，`Line` 非 null |
 | YAML 缺 `name` 字段 | 抛 `ConfigException`，消息含 `providers[0].name` |
@@ -557,7 +557,7 @@ providers:
 | 空文件（仅空白） | 抛 `ConfigException("配置文件为空")` |
 | `protocol: foo` | 抛 `ConfigException`，消息含允许集合 |
 
-> 测试用临时目录隔离：每个用例建临时文件夹写 `.parrocode.yaml`，用 `ConfigLoader.Load(explicitPath)` 注入，避免污染开发者本机配置。涉及环境变量的用例用 `Environment.SetEnvironmentVariable` 设置并在 finally 还原。
+> 测试用临时目录隔离：每个用例建临时文件夹写 `.parrotcode.yaml`，用 `ConfigLoader.Load(explicitPath)` 注入，避免污染开发者本机配置。涉及环境变量的用例用 `Environment.SetEnvironmentVariable` 设置并在 finally 还原。
 
 ### 8.2 `ProviderFactoryTests`（新增）
 
@@ -599,15 +599,15 @@ providers:
 ### 9.2 配置三级发现
 
 - [ ] 删除 cwd 与 home 配置、未设环境变量：`dotnet run` 用默认 mock 配置正常工作。
-- [ ] 在 cwd 放 `.parrocode.yaml`（`active_provider: mock` + 一个 mock provider），程序读取它。
-- [ ] 设 `PARROTCODE_CONFIG` 指向另一份 YAML：优先级高于 cwd 的 `.parrocode.yaml`（横幅显示新文件里的 name/model）。
+- [ ] 在 cwd 放 `.parrotcode.yaml`（`active_provider: mock` + 一个 mock provider），程序读取它。
+- [ ] 设 `PARROTCODE_CONFIG` 指向另一份 YAML：优先级高于 cwd 的 `.parrotcode.yaml`（横幅显示新文件里的 name/model）。
 - [ ] `PARROTCODE_CONFIG` 指向不存在的路径：程序打印"环境变量 ... 指向的文件不存在"并退出码 1。
 - [ ] 删除 cwd 配置，在 `~/.parrotcode/config.yaml` 放一份：程序读取它。
 - [ ] 跨平台：Windows 与 macOS/Linux 下用户目录发现均工作。
 
 ### 9.3 YAML 错误报告（带行号）
 
-- [ ] 故意把 `.parrocode.yaml` 写成缩进错误（如 `providers:` 下项不缩进）：错误信息包含**行号**（如"行：3"）。
+- [ ] 故意把 `.parrotcode.yaml` 写成缩进错误（如 `providers:` 下项不缩进）：错误信息包含**行号**（如"行：3"）。
 - [ ] 故意漏写 `name` 字段：错误信息指明 `providers[0].name`。
 - [ ] 两个 provider 同名：错误信息指明重复的 name 与索引。
 - [ ] `active_provider: foo`（foo 不存在）：错误信息指明 `active_provider 'foo'`。
@@ -630,8 +630,8 @@ providers:
 
 - [ ] `dotnet run` 全程 stderr 日志**不**出现 ApiKey 明文。
 - [ ] 启动横幅与错误信息**不**回显 ApiKey。
-- [ ] `.gitignore` 包含 `.parrocode.yaml`；`example.parrocode.yaml` 不被忽略。
-- [ ] `example.parrocode.yaml` 中 `api_key` 全部用 `${...}` 占位，无明文 key。
+- [ ] `.gitignore` 包含 `.parrotcode.yaml`；`example.parrotcode.yaml` 不被忽略。
+- [ ] `example.parrotcode.yaml` 中 `api_key` 全部用 `${...}` 占位，无明文 key。
 
 ### 9.7 迁移与回归
 
@@ -678,12 +678,12 @@ providers:
 - [ ] `ParrotCode.Net/Providers/MockProvider.cs`（改为 `IBaseProvider`）
 - [ ] `ParrotCode.Net/App/App.cs`（改用 `IBaseProvider` + `ProviderConfig`）
 - [ ] `ParrotCode.Net/Program.cs`（装配走配置）
-- [ ] `ParrotCode.Net/example.parrocode.yaml`
+- [ ] `ParrotCode.Net/example.parrotcode.yaml`
 - [ ] `ParrotCode.Net/ParrotCode.Net.csproj`（加 YamlDotNet，删 appsettings 项）
 - [ ] 删除 `ParrotCode.Net/Providers/IChatProvider.cs`、`ParrotCode.Net/appsettings.json`
 - [ ] `ParrotCode.Net-xUnit/ConfigLoaderTests.cs`
 - [ ] `ParrotCode.Net-xUnit/ProviderFactoryTests.cs`
 - [ ] `ParrotCode.Net-xUnit/MockProviderTests.cs`（迁移）
-- [ ] `.gitignore` 加 `.parrocode.yaml`
+- [ ] `.gitignore` 加 `.parrotcode.yaml`
 - [ ] 演示：三级发现切换 + YAML 错误截图 + `dotnet test` 全绿截图
 - [ ] 本文档状态改为 `[已完成]`

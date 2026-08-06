@@ -139,4 +139,71 @@ public class MockProviderTests
         var reply = await _provider.ChatAsync(messages, CancellationToken.None);
         reply.Should().Be("你好（mock）");
     }
+
+    // ---- 迭代 3 补充用例（ChatStreamAsync 流式）----
+
+    private static async Task<List<string>> CollectTokensAsync(IAsyncEnumerable<string> stream)
+    {
+        var tokens = new List<string>();
+        await foreach (var token in stream)
+        {
+            tokens.Add(token);
+        }
+        return tokens;
+    }
+
+    [Fact]
+    public async Task ChatStreamAsync_WithChineseInput_YieldsInputWithMockSuffix()
+    {
+        var tokens = await CollectTokensAsync(_provider.ChatStreamAsync(UserMessages("你好"), CancellationToken.None));
+
+        tokens.Should().HaveCount(1);
+        tokens[0].Should().Be("你好（mock）");
+    }
+
+    [Fact]
+    public async Task ChatStreamAsync_WithEmptyMessageList_YieldsOnlyMockSuffix()
+    {
+        var tokens = await CollectTokensAsync(
+            _provider.ChatStreamAsync(Array.Empty<Message>(), CancellationToken.None));
+
+        tokens.Should().HaveCount(1);
+        tokens[0].Should().Be("（mock）");
+    }
+
+    [Fact]
+    public async Task ChatStreamAsync_WithMultipleUserMessages_YieldsLastUserContent()
+    {
+        var tokens = await CollectTokensAsync(
+            _provider.ChatStreamAsync(UserMessages("第一", "第二", "第三"), CancellationToken.None));
+
+        tokens.Should().HaveCount(1);
+        tokens[0].Should().Be("第三（mock）");
+    }
+
+    [Fact]
+    public async Task ChatStreamAsync_WithAlreadyCancelledToken_ThrowsOperationCanceledException()
+    {
+        var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var act = async () =>
+        {
+            await foreach (var _ in _provider.ChatStreamAsync(UserMessages("你好"), cts.Token)) { }
+        };
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task ChatStreamAsync_TokensConcatenated_EqualChatAsyncResult()
+    {
+        var messages = UserMessages("一致性验证");
+        var chatAsyncReply = await _provider.ChatAsync(messages, CancellationToken.None);
+
+        var tokens = await CollectTokensAsync(_provider.ChatStreamAsync(messages, CancellationToken.None));
+        var streamConcatenated = string.Concat(tokens);
+
+        streamConcatenated.Should().Be(chatAsyncReply);
+    }
 }

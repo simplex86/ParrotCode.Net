@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace ParrotCode;
 
 /// <summary>
@@ -12,5 +14,16 @@ public sealed class MockProvider : IBaseProvider
         var lastUser = messages.LastOrDefault(m => m.Role == MessageRole.User);
         var content = lastUser?.Content ?? string.Empty;
         return Task.FromResult($"{content}（mock）");
+    }
+
+    public async IAsyncEnumerable<string> ChatStreamAsync(IReadOnlyList<Message> messages, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var lastUser = messages.LastOrDefault(m => m.Role == MessageRole.User);
+        var content = lastUser?.Content ?? string.Empty;
+        // MockProvider 不模拟逐字延迟，一次性产出完整回复。
+        // 消费方（App）的 await foreach 逻辑与真实 Provider 一致，验证流式管线正确性。
+        yield return $"{content}（mock）";
+        await Task.CompletedTask;
     }
 }

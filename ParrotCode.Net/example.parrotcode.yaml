@@ -1,5 +1,5 @@
-# ParrotCode.Net 配置示例。复制为 .parrocode.yaml 后按需修改。
-# .parrocode.yaml 已被 .gitignore 忽略，不会被提交。
+# ParrotCode.Net 配置示例。复制为 .parrotcode.yaml 后按需修改。
+# .parrotcode.yaml 已被 .gitignore 忽略，不会被提交。
 #
 # DeepSeek 为主测试目标（OpenAI 兼容协议，迭代 3 起可真实联调）；
 # OpenAI / Anthropic 保留兼容，需各自 key。

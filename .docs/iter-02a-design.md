@@ -67,7 +67,7 @@ DeepSeek 官方 API 完全兼容 OpenAI 格式，因此**不引入独立协议**
 
 | 迭代 | 落实点 |
 | --- | --- |
-| 2b | `example.parrocode.yaml` 将 DeepSeek 设为主推示例配置（置于 `providers` 首位或作 `active_provider`） |
+| 2b | `example.parrotcode.yaml` 将 DeepSeek 设为主推示例配置（置于 `providers` 首位或作 `active_provider`） |
 | 3 | `OpenAIProvider` 实现兼容 DeepSeek 差异：主要是 `deepseek-reasoner` 响应中的 `reasoning_content` 字段（OpenAI 标准无此字段），以及 DeepSeek 不支持的个别 OpenAI 请求参数需按模型按需剔除 |
 | 3+ | 测试策略：联调以 DeepSeek 为主（成本低、国内可访问）；OpenAI / Anthropic 做兼容性验证，采用条件测试（配置真实 key 才跑，否则跳过）或 mock |
 

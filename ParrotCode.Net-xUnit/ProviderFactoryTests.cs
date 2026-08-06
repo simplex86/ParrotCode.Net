@@ -22,15 +22,38 @@ public class ProviderFactoryTests
     }
 
     [Fact]
-    public void Create_WithOpenAiProtocol_ThrowsProviderNotImplemented()
+    public void Create_WithOpenAiProtocol_ReturnsOpenAIProvider()
     {
-        var config = new ProviderConfig { Name = "openai", Protocol = "openai", Model = "gpt-4o-mini" };
+        var config = new ProviderConfig
+        {
+            Name = "openai",
+            Protocol = "openai",
+            Model = "gpt-4o-mini",
+            BaseUrl = "https://api.openai.com/v1",
+            ApiKey = "sk-test"
+        };
+
+        var provider = ProviderFactory.Create(config);
+
+        provider.Should().BeOfType<OpenAIProvider>();
+    }
+
+    [Fact]
+    public void Create_WithOpenAiProtocol_EmptyModel_ThrowsConfigException()
+    {
+        var config = new ProviderConfig
+        {
+            Name = "openai",
+            Protocol = "openai",
+            Model = "",
+            BaseUrl = "https://api.openai.com/v1",
+            ApiKey = "sk-test"
+        };
 
         var act = () => ProviderFactory.Create(config);
 
-        var ex = act.Should().Throw<ProviderNotImplementedException>().Which;
-        ex.Message.Should().Contain("迭代 3");
-        ex.Message.Should().Contain("openai");
+        var ex = act.Should().Throw<ConfigException>().Which;
+        ex.Message.Should().Contain("model");
     }
 
     [Fact]
@@ -40,7 +63,9 @@ public class ProviderFactoryTests
 
         var act = () => ProviderFactory.Create(config);
 
-        act.Should().Throw<ProviderNotImplementedException>();
+        var ex = act.Should().Throw<ProviderNotImplementedException>().Which;
+        ex.Message.Should().Contain("后续迭代");
+        ex.Message.Should().Contain("anthropic");
     }
 
     [Fact]
@@ -94,20 +119,27 @@ public class ProviderFactoryTests
     }
 
     [Fact]
-    public void CreateActive_ActiveHitsOpenAi_ThrowsNotImplemented()
+    public void CreateActive_ActiveHitsOpenAi_ReturnsOpenAIProvider()
     {
         var appConfig = new AppConfig
         {
             ActiveProvider = "deepseek",
             Providers = new[]
             {
-                new ProviderConfig { Name = "deepseek", Protocol = "openai", Model = "deepseek-chat" }
+                new ProviderConfig
+                {
+                    Name = "deepseek",
+                    Protocol = "openai",
+                    Model = "deepseek-chat",
+                    BaseUrl = "https://api.deepseek.com/v1",
+                    ApiKey = "sk-test"
+                }
             }
         };
 
-        var act = () => ProviderFactory.CreateActive(appConfig);
+        var provider = ProviderFactory.CreateActive(appConfig);
 
-        act.Should().Throw<ProviderNotImplementedException>();
+        provider.Should().BeOfType<OpenAIProvider>();
     }
 
     [Fact]

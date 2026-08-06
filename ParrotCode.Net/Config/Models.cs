@@ -14,13 +14,19 @@ public sealed record ProviderConfig
     public string ApiKey { get; init; } = string.Empty;     // 2a 未用，2b 启用
 }
 
-/// <summary>顶层配置，对应 .parrocode.yaml 的根结构。</summary>
+/// <summary>
+/// 顶层配置，对应 .parrotcode.yaml 的根结构。
+/// </summary>
 public sealed record AppConfig
 {
-    /// <summary>当前激活的 Provider 名称；为 null 时回退到 providers[0].name。</summary>
+    /// <summary>
+    /// 当前激活的 Provider 名称；为 null 时回退到 providers[0].name。
+    /// </summary>
     public string? ActiveProvider { get; init; }
 
-    /// <summary>Provider 列表。无配置文件时由 Loader 提供默认 mock 项。
-    /// 用 IList 而非 IReadOnlyList：YamlDotNet 需要可变集合来填充（消费方仍按只读语义使用）。</summary>
+    /// <summary>
+    /// Provider 列表。无配置文件时由 Loader 提供默认 mock 项。
+    /// 用 IList 而非 IReadOnlyList：YamlDotNet 需要可变集合来填充（消费方仍按只读语义使用）。
+    /// </summary>
     public IList<ProviderConfig> Providers { get; init; } = Array.Empty<ProviderConfig>();
 }
