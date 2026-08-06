@@ -10,22 +10,34 @@ namespace ParrotCode;
 /// </summary>
 public interface IConsole
 {
-    /// <summary>读取一次按键（intercept=true 不回显）。</summary>
+    /// <summary>
+    /// 读取一次按键（intercept=true 不回显）。
+    /// </summary>
     ConsoleKeyInfo ReadKey(bool intercept);
 
-    /// <summary>写入原始文本（不做 Markup 转义）。</summary>
+    /// <summary>
+    /// 写入原始文本（不做 Markup 转义）。
+    /// </summary>
     void Write(string text);
 
-    /// <summary>写入换行。</summary>
+    /// <summary>
+    /// 写入换行。
+    /// </summary>
     void WriteLine();
 
-    /// <summary>写入 Spectre Markup 文本（支持颜色标记）。</summary>
+    /// <summary>
+    /// 写入 Spectre Markup 文本（支持颜色标记）。
+    /// </summary>
     void WriteMarkup(string markup);
 
-    /// <summary>写入 Spectre Markup 文本并换行。</summary>
+    /// <summary>
+    /// 写入 Spectre Markup 文本并换行。
+    /// </summary>
     void WriteMarkupLine(string markup);
 
-    /// <summary>写入 Spectre IRenderable（如 Panel/Rows/Markup 等）。</summary>
+    /// <summary>
+    /// 写入 Spectre IRenderable（如 Panel/Rows/Markup 等）。
+    /// </summary>
     void Write(IRenderable renderable);
 }
 

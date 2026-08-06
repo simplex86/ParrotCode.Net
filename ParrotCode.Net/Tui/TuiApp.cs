@@ -27,16 +27,15 @@ internal sealed class TuiApp
     private readonly IConsole _console;
     private readonly bool _useLive;
 
-    public TuiApp(
-        IBaseProvider provider,
-        ProviderConfig providerConfig,
-        AgentConfig? agentConfig,
-        TuiConfig? tuiConfig,
-        SecurityLevel securityLevel,
-        ILogger? logger,
-        CancellationToken ct,
-        IConsole? console = null,
-        bool useLive = true)
+    public TuiApp(IBaseProvider provider,
+                  ProviderConfig providerConfig,
+                  AgentConfig? agentConfig,
+                  TuiConfig? tuiConfig,
+                  SecurityLevel securityLevel,
+                  ILogger? logger,
+                  CancellationToken ct,
+                  IConsole? console = null,
+                  bool useLive = true)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
         _providerConfig = providerConfig ?? throw new ArgumentNullException(nameof(providerConfig));
@@ -50,8 +49,7 @@ internal sealed class TuiApp
         _useLive = useLive && ShouldUseLive();
     }
 
-    private static bool ShouldUseLive() =>
-        !Console.IsOutputRedirected && Environment.UserInteractive;
+    private static bool ShouldUseLive() => !Console.IsOutputRedirected && Environment.UserInteractive;
 
     public async Task RunAsync()
     {
@@ -71,10 +69,10 @@ internal sealed class TuiApp
         var executor = new ToolExecutor(registry, toolTimeout, _logger);
 
         // 7a：不注入 IHitlGate（等价迭代 6 行为）
-        var batchExecutor = new BatchToolExecutor(
-            executor, registry,
-            _agentConfig.MaxParallelism ?? 5,
-            _logger);
+        var batchExecutor = new BatchToolExecutor(executor,
+                                                  registry,
+                                                  _agentConfig.MaxParallelism ?? 5,
+                                                  _logger);
 
         var statusBar = new StatusBar
         {
@@ -86,12 +84,11 @@ internal sealed class TuiApp
         };
 
         // 启动横幅
-        _console.WriteMarkupLine(
-            $"[grey]ParrotCode.Net[/] [green]{(_useLive ? "TUI" : "console")} 模式[/] | " +
-            $"provider=[cyan]{Markup.Escape(_providerConfig.Name)}[/] " +
-            $"model=[cyan]{Markup.Escape(_providerConfig.Model)}[/] " +
-            $"security=[cyan]{_securityLevel}[/] " +
-            $"tools=[cyan]{registry.GetAll().Count}[/]");
+        _console.WriteMarkupLine($"[grey]ParrotCode.Net[/] [green]{(_useLive ? "TUI" : "console")} 模式[/] | " +
+                                 $"provider=[cyan]{Markup.Escape(_providerConfig.Name)}[/] " +
+                                 $"model=[cyan]{Markup.Escape(_providerConfig.Model)}[/] " +
+                                 $"security=[cyan]{_securityLevel}[/] " +
+                                 $"tools=[cyan]{registry.GetAll().Count}[/]");
 
         while (!_ct.IsCancellationRequested)
         {
@@ -127,9 +124,17 @@ internal sealed class TuiApp
             history.AddUser(line);
 
             // 3. 构造 AgentLoop + 事件流（迭代 6 不变）
-            var agentLoop = new AgentLoop(_provider, registry, batchExecutor,
-                _agentConfig.MaxRounds ?? 10, _agentConfig.ToolChoice ?? "auto",
-                _agentConfig.SystemPrompt, _logger);
+            // Live 模式下不给 AgentLoop 传 logger——其 info 日志走 stderr，
+            // 会与 Live 的 stdout 在终端屏幕交错，卡在 Live 区域中间破坏布局。
+            // 降级模式（console）保留 logger 便于调试。
+            var agentLogger = _useLive ? null : _logger;
+            var agentLoop = new AgentLoop(_provider, 
+                                          registry, 
+                                          batchExecutor,
+                                          _agentConfig.MaxRounds ?? 10, 
+                                          _agentConfig.ToolChoice ?? "auto",
+                                          _agentConfig.SystemPrompt, 
+                                          agentLogger);
             var sink = new ChannelEventSink();
             var agentTask = agentLoop.RunAsync(history, sink, _ct);
 
@@ -152,13 +157,16 @@ internal sealed class TuiApp
 
     /// <summary>
     /// Live 流式渲染活跃区（状态栏 + 文本 + 工具卡片）。
-    /// IsCompletingEvent 时提交到滚动历史，清空活跃区。
+    /// 流式期间持续 UpdateTarget 刷新；事件流结束后 Live 自然退出，最后一帧作为本轮输出保留在屏幕上。
+    /// 不在 Live 期间调 AnsiConsole.Write——会与 ANSI 重绘序列交错导致字节混乱。
+    /// 不在完成事件后缩小活跃区——会导致旧内容行变成空白。
+    /// 初始 target 用状态栏而非空 Text——避免从1行扩展到多行时的 ANSI 重绘残留导致双状态栏。
     /// </summary>
     private async Task RenderWithLiveAsync(ChannelReader<AgentEvent> reader, StatusBar statusBar)
     {
         var renderer = new EventRenderer();
 
-        await AnsiConsole.Live(new Text("")).StartAsync(async ctx =>
+        await AnsiConsole.Live(statusBar.Render()).StartAsync(async ctx =>
         {
             await foreach (var evt in reader.ReadAllAsync(_ct))
             {
@@ -168,16 +176,6 @@ internal sealed class TuiApp
 
                 renderer.Render(evt);
                 ctx.UpdateTarget(renderer.BuildActive(statusBar));
-                ctx.Refresh();
-
-                // 完成事件 → 提交到滚动历史，清空活跃区
-                if (IsCompletingEvent(evt))
-                {
-                    var committed = renderer.BuildCommitted();
-                    AnsiConsole.WriteLine();
-                    AnsiConsole.Write(committed);
-                    renderer.Reset();
-                }
             }
         });
     }

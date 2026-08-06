@@ -9,9 +9,13 @@ namespace ParrotCode;
 /// </summary>
 public interface IUiControl
 {
-    /// <summary>打印一条消息（用户可见）。</summary>
+    /// <summary>
+    /// 打印一条消息（用户可见）。
+    /// </summary>
     Task PrintMessageAsync(string message, CancellationToken ct);
 
-    /// <summary>更新状态栏字段（通用 key-value，如 "security" → "Strict"）。</summary>
+    /// <summary>
+    /// 更新状态栏字段（通用 key-value，如 "security" → "Strict"）。
+    /// </summary>
     void SetStatus(string key, string value);
 }

@@ -30,10 +30,14 @@ internal sealed class ConsoleEventRenderer
         }
     }
 
-    /// <summary>写入 "AI：" 前缀（行模式标记）。</summary>
+    /// <summary>
+    /// 写入 "AI：" 前缀（行模式标记）。
+    /// </summary>
     internal void WritePrefix() => _console.WriteMarkup("[green]AI：[/]");
 
-    /// <summary>渲染单个事件到控制台（行模式）。</summary>
+    /// <summary>
+    /// 渲染单个事件到控制台（行模式）。
+    /// </summary>
     internal void RenderEvent(AgentEvent evt)
     {
         switch (evt)

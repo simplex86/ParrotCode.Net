@@ -1,8 +1,12 @@
+using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
 using ParrotCode;
 using Spectre.Console;
+
+// 确保 stdout 用 UTF-8，让 LLM 返回的 emoji / CJK 字符在 Windows 终端正确显示
+Console.OutputEncoding = Encoding.UTF8;
 
 // Ctrl+C 触发取消令牌，由主循环优雅退出
 var cts = new CancellationTokenSource();

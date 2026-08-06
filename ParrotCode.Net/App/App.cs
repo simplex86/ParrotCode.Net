@@ -14,12 +14,11 @@ internal sealed class App
     private readonly ILogger _logger;
     private readonly CancellationToken _ct;
 
-    public App(
-        IBaseProvider provider,
-        ProviderConfig providerConfig,
-        AppConfig config,
-        ILogger logger,
-        CancellationToken ct)
+    public App(IBaseProvider provider,
+               ProviderConfig providerConfig,
+               AppConfig config,
+               ILogger logger,
+               CancellationToken ct)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
         _providerConfig = providerConfig ?? throw new ArgumentNullException(nameof(providerConfig));
@@ -31,14 +30,13 @@ internal sealed class App
     public async Task RunAsync()
     {
         var tuiConfig = _config.Tui ?? new TuiConfig();
-        var tuiApp = new TuiApp(
-            _provider,
-            _providerConfig,
-            _config.Agent,
-            tuiConfig,
-            SecurityLevel.Normal,  // 7a 硬编码 Normal，迭代 8 加配置项
-            _logger,
-            _ct);
+        var tuiApp = new TuiApp(_provider,
+                                _providerConfig,
+                                _config.Agent,
+                                tuiConfig,
+                                SecurityLevel.Normal,  // 7a 硬编码 Normal，迭代 8 加配置项
+                                _logger,
+                                _ct);
         await tuiApp.RunAsync();
     }
 }

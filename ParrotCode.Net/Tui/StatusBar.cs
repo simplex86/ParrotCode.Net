@@ -10,30 +10,45 @@ namespace ParrotCode;
 /// </summary>
 public sealed class StatusBar
 {
-    /// <summary>Provider 名（来自 ProviderConfig.Name）。</summary>
+    /// <summary>
+    /// Provider 名（来自 ProviderConfig.Name）。
+    /// </summary>
     public string Provider { get; set; } = string.Empty;
 
-    /// <summary>Model 名（来自 ProviderConfig.Model）。</summary>
+    /// <summary>
+    /// Model 名（来自 ProviderConfig.Model）。
+    /// </summary>
     public string Model { get; set; } = string.Empty;
 
-    /// <summary>安全等级（7a 硬编码 Normal）。</summary>
+    /// <summary>
+    /// 安全等级（7a 硬编码 Normal）。
+    /// </summary>
     public SecurityLevel SecurityLevel { get; set; } = SecurityLevel.Normal;
 
-    /// <summary>历史估算 token 数（来自 ConversationHistory.EstimatedTokens）。</summary>
+    /// <summary>
+    /// 历史估算 token 数（来自 ConversationHistory.EstimatedTokens）。
+    /// </summary>
     public int EstimatedTokens { get; set; }
 
-    /// <summary>上下文窗口 token 数（配置的 context_window_tokens，默认 64000）。</summary>
+    /// <summary>
+    /// 上下文窗口 token 数（配置的 context_window_tokens，默认 64000）。
+    /// </summary>
     public int ContextWindowTokens { get; set; } = 64000;
 
-    /// <summary>当前 ReAct 轮次（来自 RoundStartEvent）。</summary>
+    /// <summary>
+    /// 当前 ReAct 轮次（来自 RoundStartEvent）。
+    /// </summary>
     public int CurrentRound { get; set; }
 
-    /// <summary>已注册工具数（来自 ToolRegistry.GetAll().Count）。</summary>
+    /// <summary>
+    /// 已注册工具数（来自 ToolRegistry.GetAll().Count）。
+    /// </summary>
     public int ToolCount { get; set; }
 
-    /// <summary>上下文占比（0-1）。超 0.7 黄色，超 0.9 红色。</summary>
-    public double ContextRatio =>
-        ContextWindowTokens > 0 ? (double)EstimatedTokens / ContextWindowTokens : 0;
+    /// <summary>
+    /// 上下文占比（0-1）。超 0.7 黄色，超 0.9 红色。
+    /// </summary>
+    public double ContextRatio => ContextWindowTokens > 0 ? (double)EstimatedTokens / ContextWindowTokens : 0;
 
     /// <summary>
     /// 渲染状态栏为 IRenderable。
@@ -56,13 +71,12 @@ public sealed class StatusBar
         var provider = Truncate(Provider, 20);
         var model = Truncate(Model, 20);
 
-        var markup =
-            $"[grey]provider=[/][cyan]{Markup.Escape(provider)}[/] " +
-            $"[grey]model=[/][cyan]{Markup.Escape(model)}[/] " +
-            $"[grey]security=[/][{securityColor}]{SecurityLevel}[/] " +
-            $"[grey]ctx=[/][{ratioColor}]{pct}%[/]({EstimatedTokens}/{ContextWindowTokens}) " +
-            $"[grey]round=[/][cyan]{CurrentRound}[/] " +
-            $"[grey]tools=[/][cyan]{ToolCount}[/]";
+        var markup = $"[grey]provider=[/][cyan]{Markup.Escape(provider)}[/] " +
+                     $"[grey]model=[/][cyan]{Markup.Escape(model)}[/] " +
+                     $"[grey]security=[/][{securityColor}]{SecurityLevel}[/] " +
+                     $"[grey]ctx=[/][{ratioColor}]{pct}%[/]({EstimatedTokens}/{ContextWindowTokens}) " +
+                     $"[grey]round=[/][cyan]{CurrentRound}[/] " +
+                     $"[grey]tools=[/][cyan]{ToolCount}[/]";
 
         return new Panel(new Markup(markup))
         {
@@ -71,6 +85,5 @@ public sealed class StatusBar
         };
     }
 
-    private static string Truncate(string s, int max) =>
-        s.Length <= max ? s : s[..(max - 3)] + "...";
+    private static string Truncate(string s, int max) => s.Length <= max ? s : s[..(max - 3)] + "...";
 }

@@ -9,12 +9,18 @@ namespace ParrotCode;
 /// </summary>
 public enum SecurityLevel
 {
-    /// <summary>严格模式：只允许白名单路径读写（迭代 8 实现）。</summary>
+    /// <summary>
+    /// 严格模式：只允许白名单路径读写（迭代 8 实现）。
+    /// </summary>
     Strict,
 
-    /// <summary>普通模式：读放行、写询问（HITL，7b 接入）。7a 默认值。</summary>
+    /// <summary>
+    /// 普通模式：读放行、写询问（HITL，7b 接入）。7a 默认值。
+    /// </summary>
     Normal,
 
-    /// <summary>宽松模式：仅黑名单拦截（迭代 8）。</summary>
+    /// <summary>
+    /// 宽松模式：仅黑名单拦截（迭代 8）。
+    /// </summary>
     Permisive
 }

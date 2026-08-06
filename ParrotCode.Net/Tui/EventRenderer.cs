@@ -30,16 +30,24 @@ public sealed class EventRenderer
     private IRenderable? _transient;  // 7b 预留：临时渲染项（HITL 提示），7a 始终 null
     private int _currentRound;
 
-    /// <summary>当前轮活跃区文本（供状态栏或调试查看）。</summary>
+    /// <summary>
+    /// 当前轮活跃区文本（供状态栏或调试查看）。
+    /// </summary>
     public string CurrentText => _textBuf.ToString();
 
-    /// <summary>当前轮次号。</summary>
+    /// <summary>
+    /// 当前轮次号。
+    /// </summary>
     public int CurrentRound => _currentRound;
 
-    /// <summary>本轮回退的 pending 项数（供单测断言）。</summary>
+    /// <summary>
+    /// 本轮回退的 pending 项数（供单测断言）。
+    /// </summary>
     public int PendingCount => _pending.Count;
 
-    /// <summary>重置渲染器（新一轮开始或提交后调）。</summary>
+    /// <summary>
+    /// 重置渲染器（新一轮开始或提交后调）。
+    /// </summary>
     public void Reset()
     {
         _textBuf.Clear();
@@ -192,6 +200,5 @@ public sealed class EventRenderer
         return new Rows(rows);
     }
 
-    private static string Truncate(string s, int max) =>
-        s.Length <= max ? s : s[..(max - 3)] + "...";
+    private static string Truncate(string s, int max) => s.Length <= max ? s : s[..(max - 3)] + "...";
 }

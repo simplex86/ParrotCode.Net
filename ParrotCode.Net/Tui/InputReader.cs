@@ -84,6 +84,8 @@ public sealed class InputReader
             }
             if (key.Key == ConsoleKey.Backspace && buf.Length > 0)
             {
+                // 删除前屏幕长度 = "> " (2) + buf.Length（含将被删除的字符）
+                // RedrawLine 会先回退 oldScreenLen 个字符再重绘 "> " + buf（删除后）
                 var oldScreenLen = buf.Length + 2;  // 旧 buffer（含将删除的字符） + "> "
                 buf.Remove(buf.Length - 1, 1);
                 RedrawLine(oldScreenLen, buf);
@@ -100,13 +102,19 @@ public sealed class InputReader
     }
 
     /// <summary>
-    /// 清除当前行的 oldScreenLen 个字符（旧 buffer + prompt），重绘 prompt + buf。
-    /// 用 "\b \b" 回退并擦除。
+    /// 清除当前行并重绘 prompt + buf。
+    /// 用 \r 回到行首 + 输出与旧内容等长的空格覆盖旧字符 + 再 \r 回到行首 + 重绘。
+    /// 不用 "\b \b" 循环——中文字符在终端占 2 列但 \b 只退 1 列，
+    /// 退格中文会留下半字符残骸或提示符残留。
+    /// oldScreenLen 是旧屏幕长度（字符数），用于计算覆盖空格数；
+    /// 对宽字符场景会多覆盖几列空格，无害（行首对齐后多余空格被新内容覆盖或行尾）。
     /// </summary>
     private void RedrawLine(int oldScreenLen, StringBuilder buf)
     {
-        for (var i = 0; i < oldScreenLen; i++)
-            _console.Write("\b \b");
+        // 回到行首，用空格覆盖旧内容（多覆盖一些防宽字符残留），再回到行首重绘
+        _console.Write("\r");
+        _console.Write(new string(' ', oldScreenLen + 4));  // +4 余量防宽字符残留
+        _console.Write("\r");
         var color = buf.Length > 0 && buf[0] == '/' ? "cyan" : "white";
         _console.WriteMarkup($"[bold blue]> [/][{color}]{Markup.Escape(buf.ToString())}[/]");
     }
