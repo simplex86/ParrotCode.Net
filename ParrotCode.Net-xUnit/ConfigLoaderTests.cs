@@ -348,4 +348,65 @@ public class ConfigLoaderTests
         ex.Message.Should().Contain(varName);
         ex.Message.Should().Contain("providers[0].api_key");
     }
+
+    // —— 迭代 7a：TUI 配置节解析 ——
+
+    [Fact]
+    public void Load_TuiSection_Present_ParsesFields()
+    {
+        var yaml = """
+            active_provider: mock
+            providers:
+              - name: mock
+                protocol: mock
+                model: mock-1
+            tui:
+              mode: console
+              show_status_bar: false
+              context_window_tokens: 32000
+            """;
+        using var dir = new TestDir();
+        var path = dir.WriteFile(".parrotcode.yaml", yaml);
+
+        var config = ConfigLoader.Load(path);
+
+        config.Tui.Should().NotBeNull();
+        config.Tui!.Mode.Should().Be("console");
+        config.Tui.ShowStatusBar.Should().BeFalse();
+        config.Tui.ContextWindowTokens.Should().Be(32000);
+    }
+
+    [Fact]
+    public void Load_TuiSection_Absent_ReturnsNull()
+    {
+        using var dir = new TestDir();
+        var path = dir.WriteFile(".parrotcode.yaml", ValidMockYaml);
+
+        var config = ConfigLoader.Load(path);
+
+        config.Tui.Should().BeNull();
+    }
+
+    [Fact]
+    public void Load_TuiSection_Partial_OnlySpecifiedFields()
+    {
+        var yaml = """
+            active_provider: mock
+            providers:
+              - name: mock
+                protocol: mock
+                model: mock-1
+            tui:
+              mode: console
+            """;
+        using var dir = new TestDir();
+        var path = dir.WriteFile(".parrotcode.yaml", yaml);
+
+        var config = ConfigLoader.Load(path);
+
+        config.Tui.Should().NotBeNull();
+        config.Tui!.Mode.Should().Be("console");
+        config.Tui.ShowStatusBar.Should().BeNull();
+        config.Tui.ContextWindowTokens.Should().BeNull();
+    }
 }

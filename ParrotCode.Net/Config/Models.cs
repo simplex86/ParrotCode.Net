@@ -32,6 +32,9 @@ public sealed record AppConfig
 
     /// <summary>Agent 配置（迭代 6 新增）。null 时用默认值。</summary>
     public AgentConfig? Agent { get; init; }
+
+    /// <summary>TUI 配置（迭代 7a 新增）。null 时用默认值（Live 模式）。</summary>
+    public TuiConfig? Tui { get; init; }
 }
 
 /// <summary>
@@ -53,4 +56,20 @@ public sealed record AgentConfig
 
     /// <summary>system prompt，null 用默认。</summary>
     public string? SystemPrompt { get; init; }
+}
+
+/// <summary>
+/// TUI 渲染配置（迭代 7a 新增）。所有字段可选，缺省用默认值。
+/// 7a 不含 EnableHitl（留 7b）/ SecurityConfig（留 7b/迭代 8）。
+/// </summary>
+public sealed record TuiConfig
+{
+    /// <summary>渲染模式："live"（默认）| "console"（降级行模式）。</summary>
+    public string? Mode { get; init; }
+
+    /// <summary>是否显示状态栏，默认 true。</summary>
+    public bool? ShowStatusBar { get; init; }
+
+    /// <summary>上下文窗口 token 数（状态栏占比分母），默认 64000。</summary>
+    public int? ContextWindowTokens { get; init; }
 }
