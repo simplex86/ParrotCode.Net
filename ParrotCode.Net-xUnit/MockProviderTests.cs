@@ -206,4 +206,61 @@ public class MockProviderTests
 
         streamConcatenated.Should().Be(chatAsyncReply);
     }
+
+    // ---- 迭代 4 补充用例（多轮历史）----
+
+    /// <summary>构造多轮对话历史：User / Assistant / User 交替。</summary>
+    private static IReadOnlyList<Message> MultiTurnHistory(params (MessageRole role, string content)[] turns) =>
+        turns.Select(t => new Message(t.role, t.content)).ToArray();
+
+    [Fact]
+    public async Task ChatStreamAsync_WithMultiTurnHistory_EchoesLastUser()
+    {
+        // 模拟两轮完整对话 + 第三轮 user 输入
+        var history = MultiTurnHistory(
+            (MessageRole.User, "第一"),
+            (MessageRole.Assistant, "第一回复"),
+            (MessageRole.User, "第二")
+        );
+
+        var tokens = await CollectTokensAsync(_provider.ChatStreamAsync(history, CancellationToken.None));
+
+        tokens.Should().HaveCount(1);
+        tokens[0].Should().Be("第二（mock）");  // MockProvider 取最后一条 user 回显
+    }
+
+    [Fact]
+    public async Task ChatStreamAsync_WithFullMultiTurnHistory_EchoesLastUser()
+    {
+        // 模拟三轮完整对话 + 第四轮 user 输入
+        var history = MultiTurnHistory(
+            (MessageRole.User, "第一轮问题"),
+            (MessageRole.Assistant, "第一轮回复"),
+            (MessageRole.User, "第二轮问题"),
+            (MessageRole.Assistant, "第二轮回复"),
+            (MessageRole.User, "第三轮问题"),
+            (MessageRole.Assistant, "第三轮回复"),
+            (MessageRole.User, "第四轮问题")
+        );
+
+        var tokens = await CollectTokensAsync(_provider.ChatStreamAsync(history, CancellationToken.None));
+
+        tokens.Should().HaveCount(1);
+        tokens[0].Should().Be("第四轮问题（mock）");  // 始终取最后一条 user
+    }
+
+    [Fact]
+    public async Task ChatAsync_WithMultiTurnHistory_EchoesLastUser()
+    {
+        // 非流式版本的多轮历史验证
+        var history = MultiTurnHistory(
+            (MessageRole.User, "第一"),
+            (MessageRole.Assistant, "第一回复"),
+            (MessageRole.User, "我叫什么？")
+        );
+
+        var reply = await _provider.ChatAsync(history, CancellationToken.None);
+
+        reply.Should().Be("我叫什么？（mock）");  // 历史中其他消息不影响 mock 回显
+    }
 }

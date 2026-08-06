@@ -22,7 +22,9 @@ public sealed class OpenAIProvider : IBaseProvider
     {
     }
 
-    /// <summary>测试用：注入自定义 HttpMessageHandler。</summary>
+    /// <summary>
+    /// 测试用：注入自定义 HttpMessageHandler。
+    /// </summary>
     internal OpenAIProvider(ProviderConfig config, HttpMessageHandler handler)
         : this(config, CreateHttpClientFromHandler(config, handler))
     {
@@ -95,14 +97,7 @@ public sealed class OpenAIProvider : IBaseProvider
     {
         var msgArray = messages.Select(m => new
         {
-            role = m.Role switch
-            {
-                MessageRole.System => "system",
-                MessageRole.User => "user",
-                MessageRole.Assistant => "assistant",
-                MessageRole.Tool => "tool",
-                _ => "user"
-            },
+            role = m.Role.ToOpenAiRoleString(),
             content = m.Content
         });
 
