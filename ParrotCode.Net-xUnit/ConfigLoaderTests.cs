@@ -409,4 +409,81 @@ public class ConfigLoaderTests
         config.Tui.ShowStatusBar.Should().BeNull();
         config.Tui.ContextWindowTokens.Should().BeNull();
     }
+
+    // —— 迭代 7b：EnableHitl + SecurityConfig 解析 ——
+
+    [Fact]
+    public void Load_TuiEnableHitl_Present_ParsesField()
+    {
+        var yaml = """
+            active_provider: mock
+            providers:
+              - name: mock
+                protocol: mock
+                model: mock-1
+            tui:
+              mode: live
+              enable_hitl: false
+            """;
+        using var dir = new TestDir();
+        var path = dir.WriteFile(".parrotcode.yaml", yaml);
+
+        var config = ConfigLoader.Load(path);
+
+        config.Tui.Should().NotBeNull();
+        config.Tui!.EnableHitl.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Load_TuiEnableHitl_Absent_ReturnsNull()
+    {
+        var yaml = """
+            active_provider: mock
+            providers:
+              - name: mock
+                protocol: mock
+                model: mock-1
+            tui:
+              mode: live
+            """;
+        using var dir = new TestDir();
+        var path = dir.WriteFile(".parrotcode.yaml", yaml);
+
+        var config = ConfigLoader.Load(path);
+
+        config.Tui.Should().NotBeNull();
+        config.Tui!.EnableHitl.Should().BeNull();
+    }
+
+    [Fact]
+    public void Load_SecuritySection_Present_ParsesLevel()
+    {
+        var yaml = """
+            active_provider: mock
+            providers:
+              - name: mock
+                protocol: mock
+                model: mock-1
+            security:
+              level: strict
+            """;
+        using var dir = new TestDir();
+        var path = dir.WriteFile(".parrotcode.yaml", yaml);
+
+        var config = ConfigLoader.Load(path);
+
+        config.Security.Should().NotBeNull();
+        config.Security!.Level.Should().Be("strict");
+    }
+
+    [Fact]
+    public void Load_SecuritySection_Absent_ReturnsNull()
+    {
+        using var dir = new TestDir();
+        var path = dir.WriteFile(".parrotcode.yaml", ValidMockYaml);
+
+        var config = ConfigLoader.Load(path);
+
+        config.Security.Should().BeNull();
+    }
 }

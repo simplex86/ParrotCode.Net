@@ -67,28 +67,24 @@ public sealed class InputReader
                 if (matches.Length == 1)
                 {
                     // 唯一匹配——填充（清行重写）
-                    var oldScreenLen = buf.Length + 2;  // 旧 buffer + "> "
                     buf.Clear();
                     buf.Append(matches[0]);
-                    RedrawLine(oldScreenLen, buf);
+                    RedrawLine(buf);
                 }
                 else if (matches.Length > 1)
                 {
                     // 多匹配——列选项（不填充），重绘当前行
                     _console.WriteLine();
                     _console.WriteMarkupLine(string.Join("  ", matches.Select(m => $"[cyan]{Markup.Escape(m)}[/]")));
-                    RedrawLine(buf.Length + 2, buf);
+                    RedrawLine(buf);
                 }
                 // 无匹配——不做任何事
                 continue;
             }
             if (key.Key == ConsoleKey.Backspace && buf.Length > 0)
             {
-                // 删除前屏幕长度 = "> " (2) + buf.Length（含将被删除的字符）
-                // RedrawLine 会先回退 oldScreenLen 个字符再重绘 "> " + buf（删除后）
-                var oldScreenLen = buf.Length + 2;  // 旧 buffer（含将删除的字符） + "> "
                 buf.Remove(buf.Length - 1, 1);
-                RedrawLine(oldScreenLen, buf);
+                RedrawLine(buf);
                 continue;
             }
             if (!char.IsControl(key.KeyChar))
@@ -103,18 +99,13 @@ public sealed class InputReader
 
     /// <summary>
     /// 清除当前行并重绘 prompt + buf。
-    /// 用 \r 回到行首 + 输出与旧内容等长的空格覆盖旧字符 + 再 \r 回到行首 + 重绘。
-    /// 不用 "\b \b" 循环——中文字符在终端占 2 列但 \b 只退 1 列，
-    /// 退格中文会留下半字符残骸或提示符残留。
-    /// oldScreenLen 是旧屏幕长度（字符数），用于计算覆盖空格数；
-    /// 对宽字符场景会多覆盖几列空格，无害（行首对齐后多余空格被新内容覆盖或行尾）。
+    /// 用 ANSI \x1b[2K（清整行）+ \r（回到行首）+ 重绘。
+    /// 不用空格覆盖——宽字符（中文/emoji）占多列，字符数≠列数，空格数难精确计算。
+    /// \x1b[2K 清除整行所有内容（不管列数），Spectre.Console 已依赖 ANSI，终端必支持。
     /// </summary>
-    private void RedrawLine(int oldScreenLen, StringBuilder buf)
+    private void RedrawLine(StringBuilder buf)
     {
-        // 回到行首，用空格覆盖旧内容（多覆盖一些防宽字符残留），再回到行首重绘
-        _console.Write("\r");
-        _console.Write(new string(' ', oldScreenLen + 4));  // +4 余量防宽字符残留
-        _console.Write("\r");
+        _console.Write("\r\x1b[2K");
         var color = buf.Length > 0 && buf[0] == '/' ? "cyan" : "white";
         _console.WriteMarkup($"[bold blue]> [/][{color}]{Markup.Escape(buf.ToString())}[/]");
     }

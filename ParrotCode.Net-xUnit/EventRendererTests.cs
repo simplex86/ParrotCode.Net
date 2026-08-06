@@ -48,20 +48,24 @@ public class EventRendererTests
     }
 
     [Fact]
-    public void Render_RoundStart_ClearsBufferAndPending()
+    public void Render_RoundStart_MovesBufferToPending_NotClears()
     {
+        // 7b 重构：ToolCallStart 会先 FlushBufferToPending（文本块加入 _pending）
+        // RoundStart 不清空 _pending，只是 flush 当前的 _textBuf 和 _transient
         var renderer = new EventRenderer();
         renderer.Render(new AgentEvent.TextDeltaEvent("foo"));
         renderer.Render(new AgentEvent.ToolCallStartEvent(CreateToolCall()));
 
-        renderer.CurrentText.Should().Be("foo");
-        renderer.PendingCount.Should().Be(1);
+        // ToolCallStart 已把 "foo" flush 到 _pending，_textBuf 清空
+        // _pending = [textBlock("foo"), callPanel] = 2 项
+        renderer.CurrentText.Should().BeEmpty();
+        renderer.PendingCount.Should().Be(2);
 
-        // 新轮开始应清空
+        // 新轮开始：_textBuf 空（不追加），_pending 不清空
         renderer.Render(new AgentEvent.RoundStartEvent(2));
 
         renderer.CurrentText.Should().BeEmpty();
-        renderer.PendingCount.Should().Be(0);
+        renderer.PendingCount.Should().Be(2, "RoundStart 不清空 _pending");
     }
 
     [Fact]

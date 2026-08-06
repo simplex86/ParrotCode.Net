@@ -142,8 +142,20 @@ internal sealed class AgentLoop
             {
                 var call = toolCalls[i];
                 var result = results[i];
+
+                // 7b 新增：HITL/安全层拒绝 → emit ToolBlockedEvent；否则 ToolResultEvent
+                // 启发式：拒绝原因含"用户拒绝"或"被拦截"标记为 blocked。
+                if (!result.Success && IsHitlDenial(result))
+                {
+                    await sink.WriteAsync(new AgentEvent.ToolBlockedEvent(call, result.Error ?? "被拦截"), cancellationToken);
+                }
+                else
+                {
+                    await sink.WriteAsync(new AgentEvent.ToolResultEvent(call, result), cancellationToken);
+                }
+
+                // 失败原因（含 HITL 拒绝）回灌历史，让 LLM 自我修正
                 history.AddTool(result.Success ? result.Content : $"错误：{result.Error}", call.Id);
-                await sink.WriteAsync(new AgentEvent.ToolResultEvent(call, result), cancellationToken);
             }
 
             await sink.WriteAsync(new AgentEvent.RoundEndEvent(round), cancellationToken);
@@ -153,6 +165,15 @@ internal sealed class AgentLoop
         await sink.WriteAsync(new AgentEvent.MaxRoundsReachedEvent(_maxRounds), cancellationToken);
         _logger?.LogWarning("Agent 达到最大轮次 {Rounds}，强制停止", _maxRounds);
     }
+
+    /// <summary>
+    /// 启发式判断是否为 HITL/安全层拒绝（区别于工具自身执行失败）。
+    /// 拒绝原因含"用户拒绝"或"被拦截"标记为 blocked。
+    /// 更严谨的做法：BatchToolExecutor 返回带 Blocked 标志的结构（迭代 8 再精细化）。
+    /// </summary>
+    private static bool IsHitlDenial(ToolResult result) =>
+        !result.Success && (result.Error?.Contains("用户拒绝") == true ||
+                            result.Error?.Contains("被拦截") == true);
 
     /// <summary>
     /// 构造带 system prompt 的消息列表。

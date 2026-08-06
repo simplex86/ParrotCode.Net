@@ -39,12 +39,13 @@ agent:
   tool_timeout_seconds: 30
   # system_prompt: "自定义 system prompt"
 
-# 迭代 7a 新增：TUI 渲染配置（全部可选，省略时用默认值）
+# 迭代 7a/7b 新增：TUI 渲染配置（全部可选，省略时用默认值）
 tui:
   mode: live              # live | console（降级行模式，非交互终端自动降级）
   show_status_bar: true
   context_window_tokens: 64000   # 状态栏上下文占比分母
+  enable_hitl: true       # 7b 新增：是否启用 HITL（人在回路），默认 true。false 时所有工具直接执行
 
-# 7b/迭代 8 加：
-# security:
-#   level: normal           # strict | normal | permissive
+# 迭代 7b 占位（迭代 8 接入真实拦截）
+security:
+  level: normal           # strict | normal | permissive（7b 仅状态栏显示，不拦截）

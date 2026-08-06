@@ -9,45 +9,39 @@ namespace ParrotCode;
 /// 纯渲染逻辑无副作用——输入事件，更新内部累积状态，输出 IRenderable。
 /// 可单测：断言返回的 IRenderable 类型与内容。
 ///
-/// 渲染策略：
-/// - TextDeltaEvent: 累积到 _textBuf，由 BuildActive 一起输出
-/// - ToolCallStartEvent: 加 Panel 到 _pending
-/// - ToolResultEvent: 成功绿 ✓ + 截断内容；失败红 ✗ + 错误，加 Panel 到 _pending
-/// - ToolBlockedEvent: 红色 Panel "被拦截"（7a 预留分支，主路径不触发——7b HITL 接入后产生）
-/// - RoundStartEvent: 灰色 [Round N]，清空 _textBuf 与 _pending
-/// - AgentDoneEvent: 灰色 [完成]
-/// - MaxRoundsReachedEvent: 黄色 ⚠
-/// - ErrorEvent: 红色 ✗ 错误
-/// - CancelledEvent: 灰色 [已取消]
+/// 7b 重构后的渲染策略（修复跨轮顺序混乱 + 状态栏残影）：
+/// - _pending：按时间顺序的所有已完成项（文本块 + 工具卡片 + HITL 决策结果）
+/// - _textBuf：当前流式文本（未提交到 _pending）
+/// - _transient：HITL 提示（临时，ToolResult 后被清除）
 ///
-/// SetTransient 扩展点（7b 预留）：设置一个临时 IRenderable 加入活跃区。
-/// 7a 不使用（始终 null）。7b 的 HitlPrompt 调 SetTransient(prompt) 渲染 HITL 提示。
+/// 顺序保证：每次 ToolCallStart/RoundStart/ToolResult 时调 FlushBufferToPending，
+/// 把 _textBuf 作为 Text 块加入 _pending 尾部，清空 _textBuf。
+/// 这样 _pending 始终按时间顺序包含所有已完成的文本和工具卡片。
+///
+/// BuildActive 顺序：状态栏 → 轮次 → _pending（历史）→ _textBuf（当前流式）→ _transient（HITL 提示）
+/// 历史在前，当前在后，符合时间阅读顺序。
+///
+/// 行数稳定：RoundStart 不清空 _pending（只 flush buffer），跨轮时行数不骤减，
+/// 避免 Spectre.Console Live 清除多余旧行失败导致状态栏残影。
+/// _pending 超过 5 个时只显示最近 5 个 + "...还有 N 个"。
 /// </summary>
 public sealed class EventRenderer
 {
     private readonly StringBuilder _textBuf = new();
-    private readonly List<IRenderable> _pending = new();  // 本轮已完成项（工具卡片等）
-    private IRenderable? _transient;  // 7b 预留：临时渲染项（HITL 提示），7a 始终 null
+    private readonly List<IRenderable> _pending = new();  // 按时间顺序的所有已完成项
+    private IRenderable? _transient;  // 临时渲染项（HITL 提示/决策结果）
     private int _currentRound;
 
-    /// <summary>
-    /// 当前轮活跃区文本（供状态栏或调试查看）。
-    /// </summary>
+    /// <summary>当前轮活跃区文本（供状态栏或调试查看）。</summary>
     public string CurrentText => _textBuf.ToString();
 
-    /// <summary>
-    /// 当前轮次号。
-    /// </summary>
+    /// <summary>当前轮次号。</summary>
     public int CurrentRound => _currentRound;
 
-    /// <summary>
-    /// 本轮回退的 pending 项数（供单测断言）。
-    /// </summary>
+    /// <summary>已完成项数（供单测断言）。</summary>
     public int PendingCount => _pending.Count;
 
-    /// <summary>
-    /// 重置渲染器（新一轮开始或提交后调）。
-    /// </summary>
+    /// <summary>重置渲染器（新对话开始时调）。</summary>
     public void Reset()
     {
         _textBuf.Clear();
@@ -56,16 +50,25 @@ public sealed class EventRenderer
         _currentRound = 0;
     }
 
-    /// <summary>
-    /// 设置临时渲染项（7b 预留扩展点）。
-    /// 7a 不调用此方法。7b 的 HitlPrompt 调用此方法把 HITL 提示 Panel 加入活跃区。
-    /// 传 null 清除临时项。
-    /// </summary>
+    /// <summary>设置临时渲染项（HITL 提示用）。传 null 清除。</summary>
     public void SetTransient(IRenderable? renderable) => _transient = renderable;
 
     /// <summary>
+    /// 把 _textBuf 作为 Text 块加入 _pending 尾部，清空 _textBuf。
+    /// 在 ToolCallStart/RoundStart/ToolResult 前调，保证文本块按时间顺序在 _pending 中。
+    /// </summary>
+    private void FlushBufferToPending()
+    {
+        if (_textBuf.Length > 0)
+        {
+            _pending.Add(new Text(_textBuf.ToString()));
+            _textBuf.Clear();
+        }
+    }
+
+    /// <summary>
     /// 渲染单个事件为 IRenderable，并更新内部累积状态。
-    /// 返回 null 表示该事件不产生独立 IRenderable（如 TextDelta 累积到 _textBuf，由 BuildActive 一起输出）。
+    /// 返回 null 表示该事件不产生独立 IRenderable（如 TextDelta 累积到 _textBuf）。
     /// </summary>
     public IRenderable? Render(AgentEvent evt)
     {
@@ -73,9 +76,14 @@ public sealed class EventRenderer
         {
             case AgentEvent.RoundStartEvent(var round):
                 _currentRound = round;
-                _textBuf.Clear();
-                _pending.Clear();
-                _transient = null;
+                // 把上一轮的文本和 HITL 结果 flush 到 _pending（不清空 _pending）
+                // 保持行数稳定，避免 Live 残影
+                FlushBufferToPending();
+                if (_transient is not null)
+                {
+                    _pending.Add(_transient);
+                    _transient = null;
+                }
                 return new Markup($"[grey]── Round {round} ──[/]");
 
             case AgentEvent.TextDeltaEvent(var text):
@@ -86,6 +94,8 @@ public sealed class EventRenderer
                 return null;  // 文本已在 TextDelta 实时展示
 
             case AgentEvent.ToolCallStartEvent(var call):
+                // 工具调用前先把已累积的文本 flush 到 _pending（保持时间顺序）
+                FlushBufferToPending();
                 var callPanel = new Panel(new Markup(
                     $"[cyan]{Markup.Escape(call.Name)}[/]([grey]{Markup.Escape(Truncate(call.Input.GetRawText(), 100))}[/])"))
                 {
@@ -97,6 +107,8 @@ public sealed class EventRenderer
                 return null;  // 由 BuildActive 统一输出
 
             case AgentEvent.ToolResultEvent(_, var result):
+                // 工具结果到达时清除 HITL 决策结果（"✓ 已允许"被工具结果 Panel 替代）
+                _transient = null;
                 var (icon, color, content) = result.Success
                     ? ("✓", Color.Green, Truncate(result.Content, 200))
                     : ("✗", Color.Red, Markup.Escape(result.Error ?? "未知错误"));
@@ -110,8 +122,8 @@ public sealed class EventRenderer
                 return resultPanel;
 
             case AgentEvent.ToolBlockedEvent(var call, var reason):
-                // 7a 预留分支：主路径不触发（BatchToolExecutor 无 HITL）。
-                // 7b HITL 拒绝时由 AgentLoop 产生此事件，此处渲染红色拦截卡片。
+                // HITL 拒绝：清除 _transient，加红色拦截卡片
+                _transient = null;
                 var blockedPanel = new Panel(new Markup(
                     $"[red]✗ 被拦截[/] [cyan]{Markup.Escape(call.Name)}[/]\n[red]{Markup.Escape(reason)}[/]"))
                 {
@@ -123,9 +135,11 @@ public sealed class EventRenderer
                 return blockedPanel;
 
             case AgentEvent.RoundEndEvent:
-                return null;  // 不渲染（RoundStart 已标记）
+                FlushBufferToPending();
+                return null;
 
             case AgentEvent.AgentDoneEvent:
+                FlushBufferToPending();
                 return new Markup("[grey]── 完成 ──[/]");
 
             case AgentEvent.MaxRoundsReachedEvent(var rounds):
@@ -146,10 +160,10 @@ public sealed class EventRenderer
     }
 
     /// <summary>
-    /// 构建当前 Live 活跃区的 IRenderable（状态栏 + 轮次 + 文本 + 进行中工具卡片 + 临时项）。
-    /// 每次 Live 刷新时调此方法得到最新渲染目标。
-    /// _transient 非 null 时加入活跃区尾部（7b HITL 提示用）。
-    /// _pending 超过 5 个时限制显示最近 5 个 + "...还有 N 个"。
+    /// 构建当前 Live 活跃区的 IRenderable。
+    /// 顺序：状态栏 → 轮次 → _pending（历史）→ _textBuf（当前流式）→ _transient（HITL 提示）
+    /// 历史在前，当前在后，符合时间阅读顺序。
+    /// _pending 超过 5 个时只显示最近 5 个 + "...还有 N 个"。
     /// </summary>
     public IRenderable BuildActive(StatusBar statusBar)
     {
@@ -163,14 +177,10 @@ public sealed class EventRenderer
         if (_currentRound > 0)
             rows.Add(new Markup($"[grey]Round {_currentRound}[/]"));
 
-        // 3. 当前流式文本（如果有）
-        if (_textBuf.Length > 0)
-            rows.Add(new Text(_textBuf.ToString()));
-
-        // 4. 进行中/已完成的工具卡片（限制最近 5 个，避免撑满屏）
+        // 3. 历史项（_pending，按时间顺序）——限制最近 5 个避免撑满屏
         if (_pending.Count > 5)
         {
-            rows.Add(new Markup($"[grey]...还有 {_pending.Count - 5} 个更早的工具卡片[/]"));
+            rows.Add(new Markup($"[grey]...还有 {_pending.Count - 5} 个更早的内容[/]"));
             rows.AddRange(_pending.Skip(_pending.Count - 5));
         }
         else
@@ -178,7 +188,11 @@ public sealed class EventRenderer
             rows.AddRange(_pending);
         }
 
-        // 5. 临时渲染项（7b 预留：HITL 提示；7a 始终 null 不渲染）
+        // 4. 当前流式文本（如果有）——在历史之后，是最新的内容
+        if (_textBuf.Length > 0)
+            rows.Add(new Text(_textBuf.ToString()));
+
+        // 5. 临时渲染项（HITL 提示）——在最后，等待用户输入
         if (_transient is not null)
             rows.Add(_transient);
 
@@ -187,16 +201,16 @@ public sealed class EventRenderer
 
     /// <summary>
     /// 提取已完成的内容作为滚动历史提交（AgentDone 后调）。
-    /// 返回的 IRenderable 不含状态栏（状态栏是 Live 专属）与临时项（HITL 提示是 Live 内的）。
+    /// 返回的 IRenderable 不含状态栏与临时项。
     /// </summary>
     public IRenderable BuildCommitted()
     {
         var rows = new List<IRenderable>();
         if (_currentRound > 0)
             rows.Add(new Markup($"[grey]Round {_currentRound}[/]"));
+        rows.AddRange(_pending);
         if (_textBuf.Length > 0)
             rows.Add(new Text(_textBuf.ToString()));
-        rows.AddRange(_pending);
         return new Rows(rows);
     }
 

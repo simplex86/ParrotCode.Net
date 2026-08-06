@@ -39,6 +39,9 @@ public sealed record AppConfig
     /// TUI 配置（迭代 7a 新增）。null 时用默认值（Live 模式）。
     /// </summary>
     public TuiConfig? Tui { get; init; }
+
+    /// <summary>安全配置（7b 占位，迭代 8 接入真实拦截）。null 时默认 Normal。</summary>
+    public SecurityConfig? Security { get; init; }
 }
 
 /// <summary>
@@ -73,8 +76,7 @@ public sealed record AgentConfig
 }
 
 /// <summary>
-/// TUI 渲染配置（迭代 7a 新增）。所有字段可选，缺省用默认值。
-/// 7a 不含 EnableHitl（留 7b）/ SecurityConfig（留 7b/迭代 8）。
+/// TUI 渲染配置（迭代 7a 新增，7b 扩展 EnableHitl）。所有字段可选，缺省用默认值。
 /// </summary>
 public sealed record TuiConfig
 {
@@ -92,4 +94,14 @@ public sealed record TuiConfig
     /// 上下文窗口 token 数（状态栏占比分母），默认 64000。
     /// </summary>
     public int? ContextWindowTokens { get; init; }
+
+    /// <summary>是否启用 HITL，默认 true。false 时注入 NullHitlGate（7b 新增）。</summary>
+    public bool? EnableHitl { get; init; }
+}
+
+/// <summary>安全配置（7b 占位，迭代 8 接入真实拦截）。</summary>
+public sealed record SecurityConfig
+{
+    /// <summary>安全等级："strict" | "normal"（默认）| "permissive"。7b 仅状态栏显示，不拦截。</summary>
+    public string? Level { get; init; }
 }
