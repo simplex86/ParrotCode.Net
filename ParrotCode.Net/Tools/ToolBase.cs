@@ -118,4 +118,24 @@ public abstract class ToolBase : IBaseTool
         error = null;
         return el.GetString() ?? string.Empty;
     }
+
+    /// <summary>
+    /// 提取可选的 int 参数。缺失返回 defaultValue，类型错误返回 0 并设置 error。
+    /// </summary>
+    protected static int GetOptionalInt(
+        JsonElement input, string name, out string? error, int defaultValue = 0)
+    {
+        if (!input.TryGetProperty(name, out var el))
+        {
+            error = null;
+            return defaultValue;
+        }
+        if (el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var v))
+        {
+            error = null;
+            return v;
+        }
+        error = $"参数 {name} 类型错误：期望 integer，实际 {el.ValueKind}";
+        return 0;
+    }
 }

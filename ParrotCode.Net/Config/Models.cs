@@ -29,4 +29,28 @@ public sealed record AppConfig
     /// 用 IList 而非 IReadOnlyList：YamlDotNet 需要可变集合来填充（消费方仍按只读语义使用）。
     /// </summary>
     public IList<ProviderConfig> Providers { get; init; } = Array.Empty<ProviderConfig>();
+
+    /// <summary>Agent 配置（迭代 6 新增）。null 时用默认值。</summary>
+    public AgentConfig? Agent { get; init; }
+}
+
+/// <summary>
+/// Agent 循环配置。所有字段可选，缺省用默认值。
+/// </summary>
+public sealed record AgentConfig
+{
+    /// <summary>最大 ReAct 轮次，默认 10。防止无限循环。</summary>
+    public int? MaxRounds { get; init; }
+
+    /// <summary>tool_choice：auto（默认）/ none / required。</summary>
+    public string? ToolChoice { get; init; }
+
+    /// <summary>Read 工具最大并发度，默认 5。</summary>
+    public int? MaxParallelism { get; init; }
+
+    /// <summary>工具执行超时秒数，默认 30（透传给 ToolExecutor）。</summary>
+    public int? ToolTimeoutSeconds { get; init; }
+
+    /// <summary>system prompt，null 用默认。</summary>
+    public string? SystemPrompt { get; init; }
 }

@@ -30,3 +30,11 @@ providers:
     model: claude-3-5-sonnet-20241022
     base_url: https://api.anthropic.com
     api_key: ${ANTHROPIC_API_KEY}
+
+# 迭代 6 新增：Agent ReAct 循环配置（全部可选，省略时用默认值）
+agent:
+  max_rounds: 10
+  tool_choice: auto
+  max_parallelism: 5
+  tool_timeout_seconds: 30
+  # system_prompt: "自定义 system prompt"

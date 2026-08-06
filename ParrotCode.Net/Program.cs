@@ -71,7 +71,7 @@ logger.LogInformation("使用 provider={Name} model={Model} protocol={Protocol}"
                       activeConfig.Model, 
                       activeConfig.Protocol);  // 注意：不记 ApiKey
 
-var app = new App(provider, activeConfig, logger, cts.Token);
+var app = new App(provider, activeConfig, config.Agent, logger, cts.Token);
 await app.RunAsync();
 
 return 0;

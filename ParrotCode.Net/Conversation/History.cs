@@ -38,6 +38,19 @@ public sealed class ConversationHistory
     }
 
     /// <summary>
+    /// 追加携带工具调用的 assistant 消息（ReAct 循环中 LLM 决定调工具时用）。
+    /// Content 可能为空（LLM 只调工具不输出文本），ToolCalls 不能为空。
+    /// </summary>
+    public void AddAssistant(string content, IReadOnlyList<ToolCall> toolCalls)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentNullException.ThrowIfNull(toolCalls);
+        if (toolCalls.Count == 0)
+            throw new ArgumentException("toolCalls 不能为空（无工具调用请用 AddAssistant(content))", nameof(toolCalls));
+        _messages.Add(new Message(MessageRole.Assistant, content) { ToolCalls = toolCalls });
+    }
+
+    /// <summary>
     /// 追加 tool 消息（工具执行结果）。
     /// 本迭代定义但不使用；迭代 5/6 接入工具后启用。
     /// </summary>
@@ -45,6 +58,18 @@ public sealed class ConversationHistory
     {
         ArgumentNullException.ThrowIfNull(content);
         _messages.Add(new Message(MessageRole.Tool, content));
+    }
+
+    /// <summary>
+    /// 追加 tool 消息（工具执行结果）并关联 tool_call_id。
+    /// tool_call_id 必须与触发它的 assistant 消息的 ToolCalls[i].Id 一致——
+    /// OpenAI 要求 tool 消息按 tool_call_id 关联，否则报错。
+    /// </summary>
+    public void AddTool(string content, string toolCallId)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentNullException.ThrowIfNull(toolCallId);
+        _messages.Add(new Message(MessageRole.Tool, content) { ToolCallId = toolCallId });
     }
 
     /// <summary>

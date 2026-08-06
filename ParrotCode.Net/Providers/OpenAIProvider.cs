@@ -2,12 +2,14 @@ using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace ParrotCode;
 
 /// <summary>
 /// OpenAI 兼容协议 Provider。通过 BaseUrl 覆盖 OpenAI 官方与 DeepSeek 等兼容服务。
 /// 流式：POST /v1/chat/completions (stream=true) → SSE 逐行解析 → yield content delta。
+/// 迭代 6：新增带 tools 的流式重载，返回 IAsyncEnumerable&lt;ChatChunk&gt;。
 /// </summary>
 public sealed class OpenAIProvider : IBaseProvider
 {
@@ -50,7 +52,7 @@ public sealed class OpenAIProvider : IBaseProvider
                               .GetString() ?? string.Empty;
     }
 
-    // —— 流式 ——
+    // —— 纯文本流式（迭代 3 保留） ——
 
     public async IAsyncEnumerable<string> ChatStreamAsync(IReadOnlyList<Message> messages, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -91,24 +93,104 @@ public sealed class OpenAIProvider : IBaseProvider
         }
     }
 
+    // —— 带 tools 的流式（迭代 6 新增） ——
+
+    /// <summary>
+    /// 带 tools 的流式聊天。返回 ChatChunk 流（TextDelta / ToolCallDelta / Done）。
+    /// Provider 只做协议翻译：每个 delta.tool_calls[i] 直接 yield 成 ChatChunk.ToolCallDelta 分片，
+    /// 累积逻辑由 AgentLoop 的 ToolCallAccumulator 消费（方案 C）。
+    /// </summary>
+    public async IAsyncEnumerable<ChatChunk> ChatStreamAsync(
+        IReadOnlyList<Message> messages,
+        JsonElement? tools,
+        string toolChoice,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var body = BuildRequestBody(messages, stream: true, tools, toolChoice);
+        using var response = await SendAsync(body, cancellationToken);
+
+        using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var reader = new StreamReader(stream);
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var line = await reader.ReadLineAsync(cancellationToken);
+            if (line is null) break;
+            if (string.IsNullOrEmpty(line)) continue;
+            if (!line.StartsWith("data: ")) continue;
+
+            var data = line["data: ".Length..];
+            if (data == "[DONE]")
+            {
+                yield return new ChatChunk.Done();
+                break;
+            }
+
+            using var doc = JsonDocument.Parse(data);
+            var choices = doc.RootElement.GetProperty("choices");
+            if (choices.GetArrayLength() == 0) continue;
+
+            var delta = choices[0].GetProperty("delta");
+
+            // 1. 文本增量
+            if (delta.TryGetProperty("content", out var contentEl))
+            {
+                var text = contentEl.GetString();
+                if (!string.IsNullOrEmpty(text))
+                    yield return new ChatChunk.TextDelta(text);
+            }
+
+            // 2. 工具调用增量（原样 yield 分片，AgentLoop 的累积器消费）
+            if (delta.TryGetProperty("tool_calls", out var tcEl))
+            {
+                foreach (var tc in tcEl.EnumerateArray())
+                {
+                    var index = tc.GetProperty("index").GetInt32();
+                    var id = tc.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+                    string? name = null;
+                    string? args = null;
+                    if (tc.TryGetProperty("function", out var fnEl))
+                    {
+                        if (fnEl.TryGetProperty("name", out var nameEl))
+                            name = nameEl.GetString();
+                        if (fnEl.TryGetProperty("arguments", out var argsEl))
+                            args = argsEl.GetString();
+                    }
+
+                    yield return new ChatChunk.ToolCallDelta(index, id, name, args);
+                }
+            }
+            // reasoning_content（DeepSeek-reasoner）被自然忽略
+        }
+    }
+
     // —— 内部方法 ——
 
-    private string BuildRequestBody(IReadOnlyList<Message> messages, bool stream)
+    private string BuildRequestBody(
+        IReadOnlyList<Message> messages,
+        bool stream,
+        JsonElement? tools = null,
+        string? toolChoice = null)
     {
-        var msgArray = messages.Select(m => new
-        {
-            role = m.Role.ToOpenAiRoleString(),
-            content = m.Content
-        });
+        // 消息序列化用 MessageExtensions.ToOpenAiWire()（含 tool_calls / tool_call_id）
+        var msgArray = messages.Select(m => m.ToOpenAiWire());
 
-        var request = new
+        // 用 JsonNode 拼装以便注入 tools（JsonElement 不能直接放进匿名对象）
+        var root = new JsonObject
         {
-            model = _config.Model,
-            messages = msgArray,
-            stream
+            ["model"] = _config.Model,
+            ["messages"] = JsonNode.Parse(JsonSerializer.Serialize(msgArray)),
+            ["stream"] = stream
         };
 
-        return JsonSerializer.Serialize(request);
+        if (tools is { ValueKind: JsonValueKind.Array })
+        {
+            root["tools"] = JsonNode.Parse(tools.Value.GetRawText());
+            root["tool_choice"] = toolChoice ?? "auto";
+        }
+
+        return root.ToJsonString();
     }
 
     private async Task<HttpResponseMessage> SendAsync(string jsonBody, CancellationToken cancellationToken)

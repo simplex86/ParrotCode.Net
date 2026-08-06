@@ -1,20 +1,34 @@
+using System.Text.Json;
+
 namespace ParrotCode;
 
 /// <summary>
 /// 协议无关的 Provider 抽象。替代迭代 1 的临时 IChatProvider。
+/// 迭代 6：新增带 tools 的流式重载，返回 IAsyncEnumerable&lt;ChatChunk&gt;。
+/// 旧重载（ChatAsync + ChatStreamAsync 返回 string）保留，迭代 3/4 既有代码与测试不回归。
 /// </summary>
 public interface IBaseProvider
 {
     /// <summary>
-    /// 非流式聊天：给定消息列表，返回完整回复。
-    /// 用于不需要实时反馈的场景（如迭代 9 摘要）。
+    /// 非流式聊天（迭代 3 保留）。用于不需要工具调用与实时反馈的场景。
     /// </summary>
     Task<string> ChatAsync(IReadOnlyList<Message> messages, CancellationToken cancellationToken);
 
     /// <summary>
-    /// 流式聊天：逐个产出 token（文本片段）。
-    /// token 可能是单个字符、词或一段文本——由 Provider/LLM 决定粒度，消费方不应假设。
-    /// 迭代 3 仅产出文本 token；迭代 5/6 可能演进返回类型以承载 ToolCall。
+    /// 纯文本流式（迭代 3 保留）。返回 IAsyncEnumerable&lt;string&gt;。
+    /// 不传 tools，LLM 不会产出 tool_calls。
     /// </summary>
     IAsyncEnumerable<string> ChatStreamAsync(IReadOnlyList<Message> messages, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// 带 tools 的流式（迭代 6 新增）。返回 IAsyncEnumerable&lt;ChatChunk&gt;。
+    /// AgentLoop 用此重载：tools 来自 ToolRegistry.ToOpenAiSchemas()，
+    /// toolChoice 控制 LLM 是否强制调用工具（auto/none/required）。
+    /// Provider 把协议 wire format 翻译成 ChatChunk，AgentLoop 不感知协议细节。
+    /// </summary>
+    IAsyncEnumerable<ChatChunk> ChatStreamAsync(
+        IReadOnlyList<Message> messages,
+        JsonElement? tools,
+        string toolChoice,
+        CancellationToken cancellationToken);
 }
