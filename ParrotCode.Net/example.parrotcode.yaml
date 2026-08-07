@@ -41,7 +41,7 @@ agent:
 
 # 迭代 7a/7b 新增：TUI 渲染配置（全部可选，省略时用默认值）
 tui:
-  mode: live              # live | console（降级行模式，非交互终端自动降级）
+  mode: live              # live | console（降级行模式）| terminal（Terminal.Gui v2，7c-1 新增）
   show_status_bar: true
   context_window_tokens: 64000   # 状态栏上下文占比分母
   enable_hitl: true       # 7b 新增：是否启用 HITL（人在回路），默认 true。false 时所有工具直接执行
