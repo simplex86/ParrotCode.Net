@@ -27,6 +27,10 @@ internal sealed class SpinnerIndicator : Label
     /// <summary>开始动画。</summary>
     public void Start()
     {
+        // 先移除旧 timeout，避免重复 Start 导致泄漏
+        if (_timeoutToken != null)
+            Application.RemoveTimeout(_timeoutToken);
+
         _frame = 0;
         Visible = true;
         Text = $"{Verb} {Frames[_frame]}";

@@ -77,12 +77,12 @@ internal sealed class InputFieldView : TextField
         // 历史导航
         if (key.KeyCode == KeyCode.CursorUp && _history.Count > 0)
         {
-            NavigateHistory(direction: 1);  // 向上（更早）
+            NavigateHistory(direction: -1);  // 向上（更早的历史，索引减小）
             return true;
         }
         if (key.KeyCode == KeyCode.CursorDown && _historyIndex >= 0)
         {
-            NavigateHistory(direction: -1);  // 向下（更新）
+            NavigateHistory(direction: 1);  // 向下（更新的历史，索引增大）
             return true;
         }
 
@@ -199,7 +199,7 @@ internal sealed class InputFieldView : TextField
 
     /// <summary>
     /// 历史导航。
-    /// direction=1 向上（更早的历史），direction=-1 向下（更新的历史）。
+    /// direction=-1 向上（更早的历史，索引减小），direction=1 向下（更新的历史，索引增大）。
     /// </summary>
     private void NavigateHistory(int direction)
     {
@@ -223,7 +223,15 @@ internal sealed class InputFieldView : TextField
                 SetNeedsDraw();
                 return;
             }
-            if (_historyIndex >= _history.Count) _historyIndex = _history.Count - 1;
+            if (_historyIndex >= _history.Count)
+            {
+                // 超出最新历史——恢复保存的输入
+                Text = _savedBuffer ?? "";
+                _historyIndex = -1;
+                CursorPosition = Text.Length;
+                SetNeedsDraw();
+                return;
+            }
         }
 
         Text = _history[_historyIndex];           // TextField 原生重绘

@@ -1,5 +1,41 @@
 # 迭代 7c-3：HITL 模态对话框 + Spinner + 收尾
 
+## 架构调整说明（实现后更新）
+
+> 本章节记录实现阶段相对原设计的关键变更，原设计内容保留在后文以供追溯。
+
+### 1. HITL 交互方式变更：从模态 Dialog 改为内联状态行提示
+
+- **原设计**：`HitlDialog`（继承 `Dialog`）+ A/S/P/D/Esc 键盘快捷键
+- **实际实现**：HITL 状态行（`View` 容器，`Label` 左 + 4 个 `Button` 右）+ 鼠标点击 `Button`
+- **原因**：Terminal.Gui v2 的 `Dialog` 阴影在透明背景下渲染错乱（下层 CJK 字符透过阴影显示）。根因是 `Application` 全局 `ColorScheme["TopLevel"]` 被设为 `Attribute.Default`（透明），`Dialog` 继承透明背景导致阴影区域清屏不正确。改为内联提示后彻底避免此问题。
+
+### 2. 文件变更
+
+- `HitlDialog.cs`：原设计为新增文件，实际已删除（不再使用模态 `Dialog`）
+- `HitlPrompt.cs`：改为接受 UI 回调 `Func<ToolCall, CancellationToken, Task<HitlDecision>>`（而非 `dialogFactory`），只负责缓存逻辑
+- `TerminalApp.cs`：新增 `ShowHitlPromptAsync` 方法提供 UI 回调，在 Spinner 位置显示 HITL 状态行
+
+### 3. 职责分离
+
+- **Spinner**：逻辑独立（`Start`/`Stop` 由 `ProcessEvent` 控制），HITL 不操作 Spinner 的动画逻辑
+- **HITL**：只在 UI 层面临时隐藏 Spinner（`Visible=false`），避免视觉重叠；决策后恢复
+- 两者共享同一行位置，但逻辑互不干扰
+
+### 4. 验收标准调整
+
+- `7c3-04` HitlDialog 单元测试：不再适用（`HitlDialog` 已删除）
+- `7c3-07~13` HITL 交互：从"键盘 A/S/P/D/Esc"改为"鼠标点击 Button"
+- `7c3-13` Esc 拒绝：不再支持（改为 Button 点击）
+- `7c3-29` resize 居中：改为状态行自适应布局
+
+### 5. 新增测试
+
+- `InputFieldViewTests.cs`：Tab 补全、历史导航、Enter 提交、Esc 退出
+- `SpinnerIndicatorTests.cs`：Start/Stop 动画、Verb 属性
+
+---
+
 > **状态**：[设计完成，待实现]
 > **前置迭代**：7c-1 [待实现]、7c-2 [待实现]
 > **父文档**：iter-07c-design.md（保留追溯）
