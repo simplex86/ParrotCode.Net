@@ -10,13 +10,11 @@ namespace ParrotCode.xUnit;
 /// TuiApp HITL 集成测试（端到端，迭代 7b 新增）。
 ///
 /// 测试策略说明：
-/// - Live 模式（useLive=true）依赖真实终端交互，无法在 CI 测试。
+/// - 方案 A（流式渲染）不再区分 Live/降级模式，统一用 ConsoleEventRenderer 渲染。
 /// - HITL 提示渲染（A/S/P/D 按键映射、Panel/Markup 渲染）由 HitlPromptTests 单测覆盖。
-/// - HITL 决策流程（Deny→ToolBlockedEvent、Allow→执行）由 BatchToolExecutorHitlTests +
-///   AgentLoopHitlTests 覆盖（用假 IHitlGate 注入）。
-/// - 本测试文件验证 TuiApp 的 HITL 接线：
-///   * 降级模式（useLive=false）注入 NullHitlGate → Write 工具直接执行。
-///   * enable_hitl: false 配置 → 注入 NullHitlGate。
+/// - HITL 决策流程（Deny→ToolBlockedEvent、Allow→执行）由 BatchToolExecutorHitlTests 覆盖。
+/// - 本测试文件验证 TuiApp 的接线：
+///   * enable_hitl: false → NullHitlGate 注入，Write 工具直接执行。
 ///   * 端到端流程：write_file 调用 → 工具执行 → 结果渲染。
 /// </summary>
 public class TuiAppHitlIntegrationTests
@@ -83,7 +81,7 @@ public class TuiAppHitlIntegrationTests
             provider,
             new ProviderConfig { Name = "mock", Protocol = "mock", Model = "mock-1" },
             agentConfig ?? new AgentConfig(),
-            tuiConfig ?? new TuiConfig { Mode = "console" },
+            tuiConfig ?? new TuiConfig { Mode = "console", EnableHitl = false },
             SecurityLevel.Normal,
             logger: null,
             CancellationToken.None,
@@ -95,17 +93,16 @@ public class TuiAppHitlIntegrationTests
     }
 
     [Fact]
-    public async Task EndToEnd_ConsoleMode_WriteTool_DirectlyExecutes()
+    public async Task EndToEnd_HitlDisabled_WriteTool_DirectlyExecutes()
     {
-        // 降级模式（useLive=false）注入 NullHitlGate → Write 工具直接执行，不弹 HITL
-        // 用未注册的 write_tool 模拟（会返回 Fail，但不应卡在 HITL）
+        // enable_hitl: false → NullHitlGate 注入，Write 工具直接执行
         var provider = new MockProvider();
         provider.EnqueueScript(ToolCallScript("call_1", "nonexistent_write_tool", "{}"));
         provider.EnqueueScript(TextScript("done"));
 
         var output = await RunTuiAppAsync(
             provider,
-            tuiConfig: new TuiConfig { Mode = "console", EnableHitl = true },
+            tuiConfig: new TuiConfig { Mode = "console", EnableHitl = false },
             setupKeys: console =>
             {
                 console.EnqueueText("do write");
@@ -120,9 +117,9 @@ public class TuiAppHitlIntegrationTests
     }
 
     [Fact]
-    public async Task EndToEnd_EnableHitlFalse_ConsoleMode_DirectlyExecutes()
+    public async Task EndToEnd_EnableHitlFalse_DirectlyExecutes()
     {
-        // enable_hitl: false + 降级模式 → NullHitlGate 注入，Write 工具直接执行
+        // enable_hitl: false → NullHitlGate 注入，工具直接执行
         var provider = new MockProvider();
         provider.EnqueueScript(ToolCallScript("call_1", "nonexistent_tool", "{}"));
         provider.EnqueueScript(TextScript("completed"));
@@ -140,30 +137,6 @@ public class TuiAppHitlIntegrationTests
 
         output.Should().Contain("nonexistent_tool");
         output.Should().Contain("completed");
-    }
-
-    [Fact]
-    public async Task EndToEnd_EnableHitlTrue_ConsoleMode_StillDirectlyExecutes()
-    {
-        // enable_hitl: true 但降级模式（useLive=false）→ 仍注入 NullHitlGate（Live 是 HITL 的前提）
-        var provider = new MockProvider();
-        provider.EnqueueScript(ToolCallScript("call_1", "nonexistent_tool", "{}"));
-        provider.EnqueueScript(TextScript("ok"));
-
-        var output = await RunTuiAppAsync(
-            provider,
-            tuiConfig: new TuiConfig { Mode = "console", EnableHitl = true },
-            setupKeys: console =>
-            {
-                console.EnqueueText("test");
-                console.EnqueueEnter();
-                console.EnqueueExit();
-                console.EnqueueEnter();
-            });
-
-        // 不应卡在 HITL（降级模式无 Live，NullHitlGate 直接放行）
-        output.Should().Contain("nonexistent_tool");
-        output.Should().Contain("ok");
     }
 
     [Fact]
@@ -201,7 +174,7 @@ public class TuiAppHitlIntegrationTests
             provider,
             new ProviderConfig { Name = "mock", Protocol = "mock", Model = "mock-1" },
             new AgentConfig(),
-            new TuiConfig { Mode = "console", EnableHitl = true },
+            new TuiConfig { Mode = "console", EnableHitl = false },
             SecurityLevel.Normal,
             logger: null,
             cts.Token,
@@ -217,7 +190,7 @@ public class TuiAppHitlIntegrationTests
     {
         var output = await RunTuiAppAsync(
             new MockProvider(),
-            tuiConfig: new TuiConfig { Mode = "console", EnableHitl = true },
+            tuiConfig: new TuiConfig { Mode = "console", EnableHitl = false },
             setupKeys: console =>
             {
                 console.EnqueueExit();
@@ -225,7 +198,7 @@ public class TuiAppHitlIntegrationTests
             });
 
         // 启动横幅应含模式标记、安全等级、工具数
-        output.Should().Contain("console 模式");
+        output.Should().Contain("TUI 模式");
         output.Should().Contain("security=");
         output.Should().Contain("tools=");
     }

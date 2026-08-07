@@ -75,7 +75,7 @@ public class TuiAppIntegrationTests
         var console = new TestConsole();
         setupKeys?.Invoke(console);
 
-        var tuiConfig = new TuiConfig { Mode = "console" };
+        var tuiConfig = new TuiConfig { Mode = "console", EnableHitl = false };
         var app = new TuiApp(
             provider,
             new ProviderConfig { Name = "mock", Protocol = "mock", Model = "mock-1" },
@@ -260,7 +260,7 @@ public class TuiAppIntegrationTests
             });
 
         // 启动横幅应含模式标记和工具数
-        output.Should().Contain("console 模式");
+        output.Should().Contain("TUI 模式");
         output.Should().Contain("tools=");
     }
 }

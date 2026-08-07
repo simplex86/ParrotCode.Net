@@ -158,22 +158,46 @@ public class BatchToolExecutorHitlTests
     [Fact]
     public async Task ExecuteAsync_CacheHit_NoPrompt()
     {
-        // 用 HitlPrompt 真实实现 + 假 readKey：第一次 S 缓存，第二次缓存命中不调 readKey
-        var readKeyCalls = 0;
-        var prompt = new HitlPrompt(
-            render: _ => { },
-            readKey: _ => { readKeyCalls++; return ConsoleKey.S; });
+        // 方案 A：用 HitlPrompt 真实实现 + FakeConsole。
+        // 第一次 S 缓存，第二次缓存命中不调 ReadKey（不问 HITL）。
+        var console = new FakeHitlConsole();
+        console.EnqueueKey(ConsoleKey.S);
+        var prompt = new HitlPrompt(console);
         var registry = new ToolRegistry();
         registry.Register(new WriteSuccessTool("write_file"));
         var executor = new ToolExecutor(registry, TimeSpan.FromSeconds(5));
         var batch = new BatchToolExecutor(executor, registry, hitlGate: prompt);
 
+        // 第一次：触发 HITL，按 S 缓存
         await batch.ExecuteAsync(new[] { MakeCall("1", "write_file") }, CancellationToken.None);
-        var firstReadKeyCalls = readKeyCalls;
+        var firstReadKeyCalls = console.ReadKeyCalls;
 
+        // 第二次：缓存命中，不应调 ReadKey
         await batch.ExecuteAsync(new[] { MakeCall("2", "write_file") }, CancellationToken.None);
 
-        readKeyCalls.Should().Be(firstReadKeyCalls, "缓存命中时第二次不应调 readKey");
+        console.ReadKeyCalls.Should().Be(firstReadKeyCalls, "缓存命中时第二次不应调 ReadKey");
+    }
+
+    /// <summary>记录 ReadKey 调用次数的假 IConsole。</summary>
+    private sealed class FakeHitlConsole : IConsole
+    {
+        private readonly Queue<ConsoleKeyInfo> _keys = new();
+        public int ReadKeyCalls { get; private set; }
+
+        public void EnqueueKey(ConsoleKey key) =>
+            _keys.Enqueue(new ConsoleKeyInfo('\0', key, false, false, false));
+
+        public ConsoleKeyInfo ReadKey(bool intercept)
+        {
+            ReadKeyCalls++;
+            return _keys.Dequeue();
+        }
+
+        public void Write(string text) { }
+        public void WriteLine() { }
+        public void WriteMarkup(string markup) { }
+        public void WriteMarkupLine(string markup) { }
+        public void Write(Spectre.Console.Rendering.IRenderable renderable) { }
     }
 
     [Fact]

@@ -8,12 +8,12 @@ using Spectre.Console.Rendering;
 namespace ParrotCode.xUnit;
 
 /// <summary>
-/// ConsoleEventRenderer 单元测试（降级路径）。
-/// 验证各事件类型的行模式渲染输出。
+/// ConsoleEventRenderer 单元测试（流式渲染）。
+/// 验证各事件类型的 Panel/Markup 渲染输出。
 /// </summary>
 public class ConsoleEventRendererTests
 {
-    /// <summary>假控制台：捕获所有输出到 OutputBuilder。</summary>
+    /// <summary>假控制台：捕获所有输出（含 IRenderable 渲染为纯文本）。</summary>
     private sealed class CaptureConsole : IConsole
     {
         private readonly StringBuilder _output = new();
@@ -27,7 +27,20 @@ public class ConsoleEventRendererTests
         public void WriteLine() => _output.AppendLine();
         public void WriteMarkup(string markup) => _output.Append(markup);
         public void WriteMarkupLine(string markup) => _output.AppendLine(markup);
-        public void Write(IRenderable renderable) => _output.Append(renderable.ToString() ?? string.Empty);
+
+        public void Write(IRenderable renderable)
+        {
+            using var sw = new StringWriter();
+            var console = AnsiConsole.Create(new AnsiConsoleSettings
+            {
+                Out = new AnsiConsoleOutput(sw),
+                ColorSystem = ColorSystemSupport.NoColors,
+                Ansi = AnsiSupport.No,
+                Interactive = InteractionSupport.No
+            });
+            console.Write(renderable);
+            _output.Append(sw.ToString());
+        }
     }
 
     private static ToolCall CreateToolCall(string name = "echo", string argsJson = "{}") =>
@@ -155,15 +168,16 @@ public class ConsoleEventRendererTests
     }
 
     [Fact]
-    public async Task Render_RoundStartAndEnd_NoOutput()
+    public async Task Render_RoundStart_WritesRoundSeparator()
     {
         var output = await RenderEventsAsync(
             new AgentEvent.RoundStartEvent(1),
             new AgentEvent.RoundEndEvent(1),
             new AgentEvent.AgentDoneEvent(null));
 
-        // RoundStart/RoundEnd 在降级模式不渲染（只有空 "AI：" 前缀 + 换行）
-        output.Should().NotContain("Round");
+        // RoundStart 现在渲染 "── Round N ──" 分隔线
+        output.Should().Contain("Round");
+        output.Should().Contain("1");
     }
 
     [Fact]
