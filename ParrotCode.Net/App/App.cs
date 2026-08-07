@@ -3,11 +3,9 @@ using Microsoft.Extensions.Logging;
 namespace ParrotCode;
 
 /// <summary>
-/// 主应用入口：根据 tui.mode 装配 TerminalApp（Terminal.Gui v2）或 TuiApp（Spectre.Console 流式）。
-/// 迭代 7a：渲染逻辑迁移到 TuiApp + EventRenderer + ConsoleEventRenderer，App 仅做装配。
-/// 迭代 7b：从 SecurityConfig.Level 解析 SecurityLevel 传给 TuiApp（仅状态栏显示，不拦截）。
-/// 迭代 7c-1：新增 tui.mode="terminal" 分支装配 TerminalApp（与 TuiApp 并存）。
-/// 迭代 7c-2：TerminalApp 接入 AgentLoop，传入 provider。
+/// 主应用入口：装配 TerminalApp（Terminal.Gui v2）。
+/// 迭代 7a/7b：旧 TuiApp（Spectre.Console）已删除。
+/// 迭代 7c-1/2/3：TerminalApp 接管全部 UI，HITL 模态对话框 + Spinner + 流式渲染。
 /// </summary>
 internal sealed class App
 {
@@ -36,32 +34,16 @@ internal sealed class App
         // 7b：从 SecurityConfig.Level 解析 SecurityLevel（仅状态栏显示，迭代 8 接入真实拦截）
         var securityLevel = ParseSecurityLevel(_config.Security?.Level);
 
-        // 7c-2：根据 tui.mode 选择装配
-        if (tuiConfig.Mode == "terminal")
-        {
-            // 新 TerminalApp（Terminal.Gui v2）——7c-2 接入 AgentLoop
-            using var terminalApp = new TerminalApp(
-                _provider,
-                _providerConfig,
-                _config.Agent,
-                tuiConfig,
-                securityLevel,
-                _logger,
-                _ct);
-            await terminalApp.RunAsync();
-        }
-        else
-        {
-            // 旧 TuiApp（Spectre.Console 流式）
-            var tuiApp = new TuiApp(_provider,
-                                    _providerConfig,
-                                    _config.Agent,
-                                    tuiConfig,
-                                    securityLevel,
-                                    _logger,
-                                    _ct);
-            await tuiApp.RunAsync();
-        }
+        // 7c-3：旧 TuiApp 已删除，统一走 TerminalApp
+        using var terminalApp = new TerminalApp(
+            _provider,
+            _providerConfig,
+            _config.Agent,
+            tuiConfig,
+            securityLevel,
+            _logger,
+            _ct);
+        await terminalApp.RunAsync();
     }
 
     /// <summary>

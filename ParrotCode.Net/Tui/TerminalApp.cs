@@ -5,9 +5,9 @@ using Attribute = Terminal.Gui.Attribute;
 namespace ParrotCode;
 
 /// <summary>
-/// Terminal.Gui v2 主应用（迭代 7c-2：接入 AgentLoop + 事件流 + 流式渲染）。
+/// Terminal.Gui v2 主应用（迭代 7c-3：HITL 模态对话框 + Spinner + 收尾）。
 /// 装配三段式布局：顶部状态栏 + 中间对话区 + 底部输入框。
-/// 7c-2：enable_hitl=false（NullHitlGate），所有工具直接执行。
+/// 7c-3：enable_hitl=true 时注入 HitlPrompt（模态 Dialog），工具执行时显示 Spinner。
 /// </summary>
 internal sealed class TerminalApp : IDisposable
 {
@@ -23,8 +23,13 @@ internal sealed class TerminalApp : IDisposable
     private StatusBarView? _statusBarView;
     private ChatView? _chatView;
     private InputFieldView? _inputFieldView;
+    private SpinnerIndicator? _spinner;
+    private View? _hitlBar;           // HITL 状态行容器（Label + 4 Button）
+    private Label? _hitlLabel;        // HITL 提示文本（左侧）
+    private Button[]? _hitlButtons;   // HITL 4 个 Button（A/S/P/D）
     private ToolRegistry? _registry;
     private ConversationHistory? _history;
+    private HitlPrompt? _hitlPrompt;
 
     // 事件流状态机
     private ChannelEventSink? _sink;
@@ -63,21 +68,21 @@ internal sealed class TerminalApp : IDisposable
         // 2. Terminal.Gui 初始化（静态 API）
         Application.Init();
 
-        // 用 Attribute.Default 覆盖全局 TopLevel 配色——空属性不发送颜色转义码，
-        // 让终端原生前景/背景色透出来，避免 Terminal.Gui 默认的蓝底
-        var defaultAttr = Attribute.Default;
-        Colors.ColorSchemes["TopLevel"] = new ColorScheme(defaultAttr, defaultAttr, defaultAttr, defaultAttr, defaultAttr);
-
-        // 3. 构建三段式布局
+        // 3. 构建三段式布局（创建 _spinner, _inputFieldView 等）
         BuildLayout();
 
-        // 4. 注册 AddIdle 状态机——分帧处理输入和事件流，不阻塞事件循环
+        // 4. 装配 HITL（7c-3：内联提示，不用模态 Dialog）
+        //    UI 回调引用 _spinner 等，需在 BuildLayout 之后创建
+        if (_tuiConfig.EnableHitl ?? true)
+            _hitlPrompt = new HitlPrompt(ShowHitlPromptAsync);
+
+        // 5. 注册 AddIdle 状态机——分帧处理输入和事件流，不阻塞事件循环
         Application.AddIdle(IdleCallback);
 
-        // 5. 运行应用（阻塞直到 RequestStop）
+        // 6. 运行应用（阻塞直到 RequestStop）
         Application.Run(_top!);
 
-        // 6. 清理
+        // 7. 清理
         Application.Shutdown();
 
         return Task.CompletedTask;
@@ -85,8 +90,14 @@ internal sealed class TerminalApp : IDisposable
 
     private void BuildLayout()
     {
-        // Toplevel 无边框无标题栏，继承全局 TopLevel 配色（终端原生色）
+        // Toplevel 无边框无标题栏
         _top = new Toplevel();
+
+        // 只设置 _top 控件的 ColorScheme 为透明（Attribute.Default 不发送颜色转义码），
+        // 让终端原生前景/背景色透出，避免 Terminal.Gui 默认的蓝底。
+        // 注意：不覆盖全局 Colors.ColorSchemes["TopLevel"]，确保 Dialog 用默认不透明配色。
+        var defaultAttr = Attribute.Default;
+        _top.ColorScheme = new ColorScheme(defaultAttr, defaultAttr, defaultAttr, defaultAttr, defaultAttr);
 
         // 顶部状态栏（固定 1 行）——内置 Label 子类
         _statusBarView = new StatusBarView
@@ -107,22 +118,58 @@ internal sealed class TerminalApp : IDisposable
             Height = 1
         };
 
-        // 中间对话区（内置 ListView 子类，填充剩余，底部留 2 行给分割线+输入框）
+        // 中间对话区（内置 ListView 子类，填充剩余，底部留 3 行给状态行+分割线+输入框）
         _chatView = new ChatView
         {
             X = 0,
             Y = Pos.Bottom(sep1),
             Width = Dim.Fill(),
-            Height = Dim.Fill(2)  // 底部预留 2 行（分割线 + 输入框）
+            Height = Dim.Fill(3)  // 底部预留 3 行（Spinner 状态行 + 分割线 + 输入框）
         };
-        _chatView.AppendStaticMessage("ParrotCode.Net Terminal 模式（7c-2 事件流接入）");
+        _chatView.AppendStaticMessage("ParrotCode.Net Terminal 模式（7c-3 HITL + Spinner）");
         _chatView.AppendStaticMessage("输入消息开始对话，/exit 退出，/clear 清空");
 
-        // 分割线：输入框上方（内置 LineView）
-        var sep2 = new LineView
+        // 7c-3：Spinner 状态行（独立 1 行，不叠加在 ChatView 上，避免覆盖对话内容）
+        // 工具执行时显示 "Thinking ⠋" 动画，不执行时 Text 为空（占位但不重绘内容）
+        _spinner = new SpinnerIndicator
+        {
+            X = 0,
+            Y = Pos.Bottom(_chatView),  // ChatView 正下方，独立行
+            Width = Dim.Fill(),
+            Height = 1,
+            Visible = false  // 默认隐藏（Visible=false 时 Terminal.Gui 不绘制，但布局占位不变）
+        };
+
+        // 7c-3：HITL 状态行（与 Spinner 同一位置，Label 左 + 4 Button 右，初始隐藏）
+        // HITL 时隐藏 Spinner，显示此状态行；用户点击 Button 做决策
+        _hitlBar = new View
         {
             X = 0,
             Y = Pos.Bottom(_chatView),
+            Width = Dim.Fill(),
+            Height = 1,
+            Visible = false
+        };
+        _hitlLabel = new Label
+        {
+            X = 0,
+            Y = 0,
+            Width = Dim.Fill(36),  // 右侧留 36 列给 4 个 Button
+            Height = 1,
+            Text = ""
+        };
+        var btnA = new Button { X = Pos.Right(_hitlLabel), Y = 0, Text = "本次" };
+        var btnS = new Button { X = Pos.Right(btnA), Y = 0, Text = "会话" };
+        var btnP = new Button { X = Pos.Right(btnS), Y = 0, Text = "永久" };
+        var btnD = new Button { X = Pos.Right(btnP), Y = 0, Text = "拒绝" };
+        _hitlBar.Add(_hitlLabel, btnA, btnS, btnP, btnD);
+        _hitlButtons = new[] { btnA, btnS, btnP, btnD };
+
+        // 分割线：状态行下方、输入框上方（内置 LineView）
+        var sep2 = new LineView
+        {
+            X = 0,
+            Y = Pos.Bottom(_spinner),  // Spinner 和 HitlBar 同一 Y，Bottom 相同
             Width = Dim.Fill(),
             Height = 1
         };
@@ -147,7 +194,7 @@ internal sealed class TerminalApp : IDisposable
         };
         _inputFieldView.ExitRequested += () => Application.RequestStop(_top!);
 
-        _top.Add(_statusBarView, sep1, _chatView, sep2, promptLabel, _inputFieldView);
+        _top.Add(_statusBarView, sep1, _chatView, _spinner, _hitlBar, sep2, promptLabel, _inputFieldView);
         _inputFieldView.SetFocus();
     }
 
@@ -173,6 +220,9 @@ internal sealed class TerminalApp : IDisposable
                 // 消费剩余事件
                 while (_sink.Reader.TryRead(out var evt))
                     ProcessEvent(evt);
+
+                // 确保 Spinner 停止
+                _spinner?.Stop();
 
                 // 更新状态栏 token 估算
                 _statusBarView!.EstimatedTokens = _history!.EstimatedTokens;
@@ -232,9 +282,11 @@ internal sealed class TerminalApp : IDisposable
     /// <summary>启动一轮 AgentLoop，事件流通过 IdleCallback 消费。</summary>
     private void StartAgentRound()
     {
-        // 7c-2：enable_hitl=false，注入 NullHitlGate
         var executor = new ToolExecutor(_registry!, TimeSpan.FromSeconds(_agentConfig.ToolTimeoutSeconds ?? 30), _logger);
-        var hitlGate = new NullHitlGate();  // 7c-2 不启用 HITL
+
+        // 7c-3：注入 HitlPrompt（如果启用），否则 NullHitlGate
+        IHitlGate? hitlGate = _hitlPrompt is null ? new NullHitlGate() : (IHitlGate)_hitlPrompt;
+
         var batchExecutor = new BatchToolExecutor(executor, _registry!,
                                                    _agentConfig.MaxParallelism ?? 5,
                                                    hitlGate: hitlGate,
@@ -261,6 +313,75 @@ internal sealed class TerminalApp : IDisposable
 
         // 渲染到对话区
         _chatView!.RenderEvent(evt);
+
+        // 7c-3：工具调用时启动 Spinner，结果时停止
+        if (evt is AgentEvent.ToolCallStartEvent)
+            _spinner?.Start();
+        else if (evt is AgentEvent.ToolResultEvent or AgentEvent.ToolBlockedEvent)
+            _spinner?.Stop();
+    }
+
+    /// <summary>
+    /// HITL 内联提示（7c-3：不用模态 Dialog，用状态行 Label + Button）。
+    /// 显示 HITL 状态行（Label 左 + 4 Button 右），用户点击 Button 做决策。
+    /// HITL 期间禁止输入（InputFieldView.ReadOnly = true）。
+    ///
+    /// 职责分离：
+    /// - Spinner 逻辑独立（Start/Stop 由 ProcessEvent 控制），HITL 不操作 Spinner 的动画逻辑
+    /// - HITL 只在 UI 层面临时隐藏 Spinner（Visible=false），避免视觉重叠；决策后恢复
+    /// </summary>
+    private async Task<HitlDecision> ShowHitlPromptAsync(ToolCall call, CancellationToken ct)
+    {
+        var tcs = new TaskCompletionSource<HitlDecision>();
+
+        Application.Invoke(() =>
+        {
+            // UI 层面隐藏 Spinner（不调 Stop，Spinner 动画逻辑独立）
+            _spinner!.Visible = false;
+
+            // 显示 HITL 状态行
+            _hitlLabel!.Text = $"  即将执行 {call.Name}";
+            _hitlBar!.Visible = true;
+
+            // 禁止输入
+            _inputFieldView!.ReadOnly = true;
+
+            // 注册 Button 点击事件
+            for (int i = 0; i < _hitlButtons!.Length; i++)
+            {
+                _hitlButtons[i].Accepting += OnHitlButtonClick;
+            }
+
+            void OnHitlButtonClick(object? sender, EventArgs e)
+            {
+                // 移除所有 Button 事件
+                foreach (var btn in _hitlButtons!)
+                    btn.Accepting -= OnHitlButtonClick;
+
+                // 恢复 UI
+                _hitlBar!.Visible = false;
+                _spinner!.Visible = true;  // 恢复 Spinner 可见（动画逻辑不受影响）
+                _inputFieldView!.ReadOnly = false;
+                _inputFieldView.SetFocus();
+
+                // 从 sender 判断决策
+                var clickedBtn = (Button)sender!;
+                var choice = Array.IndexOf(_hitlButtons, clickedBtn) switch
+                {
+                    0 => HitlChoice.AllowOnce,
+                    1 => HitlChoice.AllowSession,
+                    2 => HitlChoice.AllowPermanent,
+                    _ => HitlChoice.Deny
+                };
+
+                var decision = choice == HitlChoice.Deny
+                    ? HitlDecision.Deny("用户拒绝执行")
+                    : new HitlDecision(choice);
+                tcs.SetResult(decision);
+            }
+        });
+
+        return await tcs.Task;
     }
 
     public void Dispose()

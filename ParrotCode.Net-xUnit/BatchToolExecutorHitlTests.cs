@@ -156,48 +156,45 @@ public class BatchToolExecutorHitlTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_CacheHit_NoPrompt()
+    public async Task ExecuteAsync_HitlCache_HitlGateAlwaysInvoked()
     {
-        // 方案 A：用 HitlPrompt 真实实现 + FakeConsole。
-        // 第一次 S 缓存，第二次缓存命中不调 ReadKey（不问 HITL）。
-        var console = new FakeHitlConsole();
-        console.EnqueueKey(ConsoleKey.S);
-        var prompt = new HitlPrompt(console);
-        var registry = new ToolRegistry();
-        registry.Register(new WriteSuccessTool("write_file"));
-        var executor = new ToolExecutor(registry, TimeSpan.FromSeconds(5));
-        var batch = new BatchToolExecutor(executor, registry, hitlGate: prompt);
+        // 7c-3：HitlPrompt 的会话缓存在其内部短路（不弹框），但 BatchToolExecutor 每次仍调 RequestAsync。
+        // 用带缓存的 FakeHitlGate 验证：第二次 RequestAsync 仍被调用，但返回 AllowSession（无需用户交互）。
+        var gate = new CachingFakeHitlGate(HitlChoice.AllowSession);
+        var (batch, _) = NewBatchWithHitl(gate);
 
-        // 第一次：触发 HITL，按 S 缓存
         await batch.ExecuteAsync(new[] { MakeCall("1", "write_file") }, CancellationToken.None);
-        var firstReadKeyCalls = console.ReadKeyCalls;
+        var firstRequestCalls = gate.RequestCalls;
 
-        // 第二次：缓存命中，不应调 ReadKey
         await batch.ExecuteAsync(new[] { MakeCall("2", "write_file") }, CancellationToken.None);
 
-        console.ReadKeyCalls.Should().Be(firstReadKeyCalls, "缓存命中时第二次不应调 ReadKey");
+        gate.RequestCalls.Should().Be(firstRequestCalls + 1, "BatchToolExecutor 每次都应调 RequestAsync（缓存短路在 HitlPrompt 内部）");
+        gate.IsAllowedThisSession("write_file").Should().BeTrue("第一次 S 后会话级缓存应命中");
     }
 
-    /// <summary>记录 ReadKey 调用次数的假 IConsole。</summary>
-    private sealed class FakeHitlConsole : IConsole
+    /// <summary>
+    /// 带 IsAllowedThisSession 缓存的假 IHitlGate——模拟 HitlPrompt 的会话级缓存行为。
+    /// 第一次 RequestAsync 返回决策并缓存；第二次直接命中缓存（仍由调用方决定是否短路）。
+    /// </summary>
+    private sealed class CachingFakeHitlGate : IHitlGate
     {
-        private readonly Queue<ConsoleKeyInfo> _keys = new();
-        public int ReadKeyCalls { get; private set; }
+        private readonly HitlChoice _choice;
+        private readonly HashSet<string> _cache = new();
+        public int RequestCalls { get; private set; }
 
-        public void EnqueueKey(ConsoleKey key) =>
-            _keys.Enqueue(new ConsoleKeyInfo('\0', key, false, false, false));
+        public CachingFakeHitlGate(HitlChoice choice) => _choice = choice;
 
-        public ConsoleKeyInfo ReadKey(bool intercept)
+        public Task<HitlDecision?> RequestAsync(ToolCall call, CancellationToken ct)
         {
-            ReadKeyCalls++;
-            return _keys.Dequeue();
+            RequestCalls++;
+            if (_cache.Contains(call.Name))
+                return Task.FromResult<HitlDecision?>(new HitlDecision(HitlChoice.AllowSession));
+            if (_choice is HitlChoice.AllowSession or HitlChoice.AllowPermanent)
+                _cache.Add(call.Name);
+            return Task.FromResult<HitlDecision?>(new HitlDecision(_choice));
         }
 
-        public void Write(string text) { }
-        public void WriteLine() { }
-        public void WriteMarkup(string markup) { }
-        public void WriteMarkupLine(string markup) { }
-        public void Write(Spectre.Console.Rendering.IRenderable renderable) { }
+        public bool IsAllowedThisSession(string toolName) => _cache.Contains(toolName);
     }
 
     [Fact]

@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Spectre.Console;
 
 namespace ParrotCode;
 
@@ -22,7 +21,7 @@ internal static class ClosedLoopDemo
         // 2. 构造 ToolExecutor
         var executor = new ToolExecutor(registry, timeout: TimeSpan.FromSeconds(10));
 
-        AnsiConsole.MarkupLine("[grey]=== 工具系统闭环 demo ===[/]");
+        Console.WriteLine("=== 工具系统闭环 demo ===");
 
         // 3. 模拟 LLM 返回的 ToolCall：write_file
         await RunOne(executor, "demo-write-1", "write_file",
@@ -44,7 +43,7 @@ internal static class ClosedLoopDemo
         await RunOne(executor, "demo-unknown-1", "nonexistent_tool",
             "{}", cancellationToken);
 
-        AnsiConsole.MarkupLine("[grey]=== demo 结束 ===[/]");
+        Console.WriteLine("=== demo 结束 ===");
     }
 
     /// <summary>
@@ -59,7 +58,7 @@ internal static class ClosedLoopDemo
     {
         using var doc = JsonDocument.Parse(inputJson);
         var call = new ToolCall(id, name, doc.RootElement);
-        AnsiConsole.MarkupLine($"[cyan]→ tool_call:[/] {call.Name} (id={call.Id})");
+        Console.WriteLine($"→ tool_call: {call.Name} (id={call.Id})");
         var result = await executor.ExecuteAsync(call, cancellationToken);
         PrintResult(result);
     }
@@ -68,11 +67,11 @@ internal static class ClosedLoopDemo
     {
         if (result.Success)
         {
-            AnsiConsole.MarkupLine($"[green]✓ 成功:[/] {Markup.Escape(result.Content)}");
+            Console.WriteLine($"✓ 成功: {result.Content}");
         }
         else
         {
-            AnsiConsole.MarkupLine($"[red]✗ 失败:[/] {Markup.Escape(result.Error ?? "(无错误信息)")}");
+            Console.WriteLine($"✗ 失败: {result.Error ?? "(无错误信息)"}");
         }
     }
 }

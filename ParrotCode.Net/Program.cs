@@ -3,7 +3,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
 using ParrotCode;
-using Spectre.Console;
 
 // 确保 stdout 用 UTF-8，让 LLM 返回的 emoji / CJK 字符在 Windows 终端正确显示
 Console.OutputEncoding = Encoding.UTF8;
@@ -24,7 +23,7 @@ using var loggerFactory = LoggerFactory.Create(builder =>
         options.SingleLine = true;
         options.TimestampFormat = "HH:mm:ss ";
     });
-    // 把所有日志路由到 stderr（Console.Error），与用户可见输出（stdout/Spectre）分离。
+    // 把所有日志路由到 stderr（Console.Error），与用户可见输出（stdout/Terminal.Gui）分离。
     builder.Services.Configure<ConsoleLoggerOptions>(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
     builder.SetMinimumLevel(LogLevel.Information);
 });
@@ -37,11 +36,11 @@ try
 }
 catch (ConfigException ex)
 {
-    AnsiConsole.MarkupLine($"[red]配置错误：[/]{Markup.Escape(ex.Message)}");
+    Console.Error.WriteLine($"配置错误：{ex.Message}");
     if (ex.SourcePath is not null)
-        AnsiConsole.MarkupLine($"[grey]  文件：{Markup.Escape(ex.SourcePath)}[/]");
+        Console.Error.WriteLine($"  文件：{ex.SourcePath}");
     if (ex.Line is not null)
-        AnsiConsole.MarkupLine($"[grey]  行：{ex.Line}{(ex.Column is null ? "" : $"，列：{ex.Column}")}[/]");
+        Console.Error.WriteLine($"  行：{ex.Line}{(ex.Column is null ? "" : $"，列：{ex.Column}")}");
     return 1;
 }
 
@@ -56,23 +55,23 @@ try
 }
 catch (ProviderNotImplementedException ex)
 {
-    AnsiConsole.MarkupLine($"[yellow]提示：[/]{Markup.Escape(ex.Message)}");
+    Console.Error.WriteLine($"提示：{ex.Message}");
     return 1;
 }
 catch (ConfigException ex)
 {
-    AnsiConsole.MarkupLine($"[red]配置错误：[/]{Markup.Escape(ex.Message)}");
+    Console.Error.WriteLine($"配置错误：{ex.Message}");
     return 1;
 }
 catch (ArgumentException ex)
 {
-    AnsiConsole.MarkupLine($"[red]配置错误：[/]{Markup.Escape(ex.Message)}");
+    Console.Error.WriteLine($"配置错误：{ex.Message}");
     return 1;
 }
 
 logger.LogInformation("使用 provider={Name} model={Model} protocol={Protocol}",
-                      activeConfig.Name, 
-                      activeConfig.Model, 
+                      activeConfig.Name,
+                      activeConfig.Model,
                       activeConfig.Protocol);  // 注意：不记 ApiKey
 
 var app = new App(provider, activeConfig, config, logger, cts.Token);
