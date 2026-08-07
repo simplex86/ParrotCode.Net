@@ -34,8 +34,9 @@
 |------|---------|---------|
 | AgentLoop 在后台线程跑，Terminal.Gui UI 在主线程，如何安全更新 | 流式文本能实时显示 | 用 MainLoop.AddIdle 分帧 |
 | Channel<AgentEvent> 的事件流如何不阻塞事件循环 | UI 不卡顿 | AddIdle 批量处理 |
-| 流式 TextDelta 如何高效更新 ChatView（不每次重建全部） | 文本流畅追加 | 增量更新最后一条消息 |
-| 工具调用/结果卡片的颜色和格式 | 视觉正确 | 调整 Attribute 设置 |
+| `ListView` + `IListDataSource.Render` 钩子能否按消息类型上色 | 各消息类型颜色正确 | 退回单色，或拆多个 Label |
+| 流式 TextDelta 如何高效更新 ChatView（不每次重建全部） | 文本流畅追加 | 增量改最后一条 + `SetSource` 轻量重绘 |
+| `ListView` 原生滚动能否自动跟到底部 | 新内容自动可见 | `SelectedIndex = last` 触发滚入 |
 
 ### 1.3 非目标（明确不做）
 
@@ -145,24 +146,23 @@ internal sealed record ChatMessage(MessageType Type, string Content)
 }
 ```
 
-### 3.2 ChatView 改造——RenderEvent 实现
+### 3.2 ChatView 改造——RenderEvent 实现（内置 ListView + DrawItem）
 
-**职责**：在 7c-1 静态基础上，新增 `RenderEvent(AgentEvent)` 方法，消费事件流。
+**职责**：在 7c-1 静态基础上（已继承 `ListView`），新增 `RenderEvent(AgentEvent)` 方法，消费事件流。**不自绘滚动**——用 `IListDataSource.Render` 钩子按消息类型上色，滚动由 ListView 原生处理。
 
 ```csharp
+using System.Collections;
 using System.Text;
-using System.Threading.Channels;
-using Terminal.Gui.App;
-using Terminal.Gui.Drawing;
-using Terminal.Gui.ViewBase;
+using Terminal.Gui.ConsoleDrivers;
+using Terminal.Gui.Views;
 
 namespace ParrotCode;
 
 /// <summary>
-/// 对话区 View（迭代 7c-2：接入 AgentEvent 流式渲染）。
-/// 消息列表模型 + 流式文本缓冲 + 自动滚动。
+/// 对话区（迭代 7c-2：继承内置 ListView，接入 AgentEvent 流式渲染）。
+/// 消息列表模型 + 流式文本缓冲 + 原生滚动 + DrawItem 上色。
 /// </summary>
-internal sealed class ChatView : View
+internal sealed class ChatView : ListView
 {
     private readonly List<ChatMessage> _messages = new();
     private readonly StringBuilder _currentText = new();  // 当前流式文本缓冲
@@ -170,9 +170,8 @@ internal sealed class ChatView : View
 
     public ChatView()
     {
-        CanFocus = true;
-        ViewportSettings = ViewportSettingsFlags.HasVerticalScrollBar;
-        SetContentSize(new Size(0, 0));
+        CanFocus = false;  // 不抢焦点；鼠标滚轮仍可滚动
+        Source = new ChatMessageListSource(_messages);
     }
 
     // ===== 7c-1 保留方法（兼容静态占位）=====
@@ -181,7 +180,8 @@ internal sealed class ChatView : View
     public void AppendStaticMessage(string text)
     {
         _messages.Add(new ChatMessage(MessageType.System, text));
-        RebuildContent();
+        RefreshSource();
+        ScrollToBottom();
     }
 
     /// <summary>清空对话区。</summary>
@@ -190,7 +190,7 @@ internal sealed class ChatView : View
         _messages.Clear();
         _currentText.Clear();
         _hasStreamingText = false;
-        RebuildContent();
+        RefreshSource();
     }
 
     // ===== 7c-2 新增方法 =====
@@ -200,7 +200,8 @@ internal sealed class ChatView : View
     {
         FlushCurrentText();
         _messages.Add(new ChatMessage(MessageType.User, text));
-        RebuildContent();
+        RefreshSource();
+        ScrollToBottom();
     }
 
     /// <summary>
@@ -214,14 +215,19 @@ internal sealed class ChatView : View
             case AgentEvent.RoundStartEvent(var round):
                 FlushCurrentText();
                 _messages.Add(new ChatMessage(MessageType.System, $"── Round {round} ──"));
-                RebuildContent();
+                RefreshSource();
+                ScrollToBottom();
                 break;
 
             case AgentEvent.TextDeltaEvent(var text):
-                // 流式追加到缓冲，不立即 flush
+                // 流式追加：若无 assistant 槽位则创建一个可变槽位
+                if (!_hasStreamingText)
+                {
+                    _messages.Add(new ChatMessage(MessageType.Assistant, ""));
+                    _hasStreamingText = true;
+                }
                 _currentText.Append(text);
-                _hasStreamingText = true;
-                UpdateStreamingText();
+                UpdateLastMessage(_currentText.ToString());
                 break;
 
             case AgentEvent.AssistantMessageEvent:
@@ -232,7 +238,8 @@ internal sealed class ChatView : View
                 FlushCurrentText();
                 _messages.Add(new ChatMessage(MessageType.ToolCall,
                     $"  ⎿ → {call.Name}({Truncate(call.Input.GetRawText(), 80)})"));
-                RebuildContent();
+                RefreshSource();
+                ScrollToBottom();
                 break;
 
             case AgentEvent.ToolResultEvent(_, var result):
@@ -244,14 +251,16 @@ internal sealed class ChatView : View
                 _messages.Add(new ChatMessage(
                     result.Success ? MessageType.ToolResult : MessageType.ToolError,
                     $"  ⎿ {icon} {content}"));
-                RebuildContent();
+                RefreshSource();
+                ScrollToBottom();
                 break;
 
             case AgentEvent.ToolBlockedEvent(var call, var reason):
                 FlushCurrentText();
                 _messages.Add(new ChatMessage(MessageType.System,
                     $"  ⎿ ⛔ 拦截 {call.Name}: {reason}"));
-                RebuildContent();
+                RefreshSource();
+                ScrollToBottom();
                 break;
 
             case AgentEvent.AgentDoneEvent:
@@ -261,25 +270,29 @@ internal sealed class ChatView : View
             case AgentEvent.MaxRoundsReachedEvent(var rounds):
                 FlushCurrentText();
                 _messages.Add(new ChatMessage(MessageType.Warning, $"⚠ 已达最大轮次 {rounds}"));
-                RebuildContent();
+                RefreshSource();
+                ScrollToBottom();
                 break;
 
             case AgentEvent.WarningEvent(var msg):
                 FlushCurrentText();
                 _messages.Add(new ChatMessage(MessageType.Warning, $"⚠ {msg}"));
-                RebuildContent();
+                RefreshSource();
+                ScrollToBottom();
                 break;
 
             case AgentEvent.ErrorEvent(var msg, _):
                 FlushCurrentText();
                 _messages.Add(new ChatMessage(MessageType.Error, $"✗ 错误：{msg}"));
-                RebuildContent();
+                RefreshSource();
+                ScrollToBottom();
                 break;
 
             case AgentEvent.CancelledEvent:
                 FlushCurrentText();
                 _messages.Add(new ChatMessage(MessageType.System, "── 已取消 ──"));
-                RebuildContent();
+                RefreshSource();
+                ScrollToBottom();
                 break;
 
             case AgentEvent.RoundEndEvent:
@@ -294,55 +307,68 @@ internal sealed class ChatView : View
     /// </summary>
     private void FlushCurrentText()
     {
-        if (_hasStreamingText && _currentText.Length > 0)
+        if (_hasStreamingText)
         {
-            _messages.Add(new ChatMessage(MessageType.Assistant, _currentText.ToString()));
+            // 流式槽位已在 TextDelta 实时更新；仅复位标志
             _currentText.Clear();
             _hasStreamingText = false;
-            RebuildContent();
+            ScrollToBottom();
         }
     }
 
-    /// <summary>
-    /// 重建全部内容并自动滚到底部。
-    /// 简单实现：每次重建全部文本。消息量大时优化为增量更新（迭代 9+）。
-    /// </summary>
-    private void RebuildContent()
+    /// <summary>流式增量更新最后一条消息（不重建全部）。</summary>
+    private void UpdateLastMessage(string text)
     {
-        var lines = new List<string>();
-        foreach (var msg in _messages)
+        if (_messages.Count > 0)
         {
-            var formatted = msg.Format();
-            lines.AddRange(formatted.Split('\n'));
+            _messages[^1] = _messages[^1] with { Content = text };
+            RefreshSource();
+            ScrollToBottom();
         }
-        Text = string.Join(Environment.NewLine, lines);
-        SetContentSize(new Size(Viewport.Width, lines.Count));
-        ScrollToBottom();
     }
 
-    /// <summary>
-    /// 流式更新当前文本（不重建全部，性能优化）。
-    /// 7c-2 简单实现：直接 RebuildContent。消息少时足够快。
-    /// </summary>
-    private void UpdateStreamingText()
-    {
-        // TODO: 性能优化——只更新最后一条消息的文本，不重建全部
-        // 7c-2 先用简单实现，迭代 9+ 优化
-        RebuildContent();
-    }
+    /// <summary>通知 ListView 数据变化（触发重绘）。</summary>
+    private void RefreshSource() => Source = new ChatMessageListSource(_messages);
 
-    /// <summary>自动滚动到底部。</summary>
+    /// <summary>滚动到底部（ListView 原生：选中最后一项即滚入可视）。</summary>
     private void ScrollToBottom()
     {
-        var contentHeight = GetContentSize().Height;
-        Viewport = Viewport with
-        {
-            Location = new Point(0, Math.Max(0, contentHeight - Viewport.Height))
-        };
+        if (_messages.Count > 0)
+            SelectedIndex = _messages.Count - 1;
     }
 
     private static string Truncate(string s, int max) =>
         s.Length <= max ? s : s[..(max - 3)] + "...";
+}
+
+/// <summary>
+/// ChatView 的 IListDataSource 实现：在 Render（即 DrawItem 钩子）按消息类型设前景色。
+/// 只负责单行渲染，滚动/布局由 ListView 原生处理。
+/// </summary>
+internal sealed class ChatMessageListSource : IListDataSource
+{
+    private readonly List<ChatMessage> _messages;
+    public ChatMessageListSource(List<ChatMessage> messages) => _messages = messages;
+
+    public int Count => _messages.Count;
+    public int Length => _messages.Count;
+
+    public void Render(ListView container, ConsoleDriver driver, bool selected, int index, int col, int line, int width)
+    {
+        var msg = _messages[index];
+        var color = msg.GetColor();
+        // 前景按消息类型，背景跟随容器 Normal
+        container.SetAttribute(new Attribute(color, container.GetNormalColor().Background));
+        container.Move(col, line);
+        driver.AddStr(TruncateForDisplay(msg.Format(), width));
+    }
+
+    public bool IsMarked(int index) => false;
+    public void SetMark(int index, bool value) { }
+    public IList ToList() => _messages;
+
+    private static string TruncateForDisplay(string s, int width) =>
+        s.Length <= width ? s : s[..Math.Max(0, width - 3)] + "...";
 }
 ```
 
@@ -680,12 +706,14 @@ public void RenderEvent_TextDelta_BuffersText()
 - 编写 `ChatMessageTests.cs`
 - **验证**：`dotnet test` ChatMessage 测试通过
 
-### 步骤 2：ChatView RenderEvent 实现
+### 步骤 2：ChatView RenderEvent 实现（内置 ListView + DrawItem）
 
 - `ChatView` 新增 `RenderEvent(AgentEvent)` 方法
+- 实现 `ChatMessageListSource : IListDataSource`，在 `Render` 钩子按消息类型上色
 - 实现所有 12 种事件类型的渲染
-- 实现流式缓冲（`_currentText` + `FlushCurrentText`）
-- **验证**：单元测试通过
+- 实现流式缓冲（`_currentText` + `FlushCurrentText` + `UpdateLastMessage`）
+- 滚动用 ListView 原生 `SelectedIndex = last`
+- **验证**：单元测试通过；各消息类型颜色正确
 
 ### 步骤 3：TerminalApp 接入 AgentLoop
 
@@ -716,7 +744,8 @@ public void RenderEvent_TextDelta_BuffersText()
 |------|------|------|------|
 | AddIdle 分帧导致流式不流畅 | 中 | 中 | 调整批量大小（20→50），或用定时器替代 |
 | 跨线程访问 View 导致崩溃 | 低 | 高 | 确保 ProcessEvent 只在 AddIdle 回调（主线程）执行 |
-| 流式文本重建性能差 | 中 | 低 | 7c-2 先用简单实现，迭代 9+ 优化增量更新 |
+| `IListDataSource.Render` 钩子上色不生效 | 中 | 中 | 退回 `SetSource` 单色；或用 `TextFormatter` markup 给字符串着色 |
+| 流式增量 `RefreshSource` 频繁重建导致闪烁 | 中 | 低 | 改用 `Source` 的 `RowRender` 通知单行重绘，不重建整个 Source |
 | AgentLoop 异常未捕获导致 UI 卡死 | 低 | 中 | RunAgentRoundAsync 包 try-catch，异常显示到 ChatView |
 
 ---

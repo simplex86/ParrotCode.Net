@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Terminal.Gui;
+using Attribute = Terminal.Gui.Attribute;
 
 namespace ParrotCode;
 
@@ -17,12 +18,10 @@ internal sealed class TerminalApp : IDisposable
     private readonly ILogger? _logger;
     private readonly CancellationToken _ct;
 
-    private Window? _top;
+    private Toplevel? _top;
     private StatusBarView? _statusBarView;
     private ChatView? _chatView;
     private InputFieldView? _inputFieldView;
-
-    // 7c-1 不接 Agent，但保留字段供 7c-2 使用
     private ToolRegistry? _registry;
 
     public TerminalApp(ProviderConfig providerConfig,
@@ -54,13 +53,21 @@ internal sealed class TerminalApp : IDisposable
         // 2. Terminal.Gui 初始化（静态 API）
         Application.Init();
 
+        // 用 Attribute.Default 覆盖全局 TopLevel 配色——空属性不发送颜色转义码，
+        // 让终端原生前景/背景色透出来，避免 Terminal.Gui 默认的蓝底
+        var defaultAttr = Attribute.Default;
+        Colors.ColorSchemes["TopLevel"] = new ColorScheme(defaultAttr, defaultAttr, defaultAttr, defaultAttr, defaultAttr);
+
         // 3. 构建三段式布局
         BuildLayout();
 
-        // 4. 运行应用（阻塞直到 RequestStop）
+        // 4. 注册 AddIdle 状态机——分帧处理输入，不阻塞事件循环
+        Application.AddIdle(IdleCallback);
+
+        // 5. 运行应用（阻塞直到 RequestStop）
         Application.Run(_top!);
 
-        // 5. 清理
+        // 6. 清理
         Application.Shutdown();
 
         return Task.CompletedTask;
@@ -68,9 +75,10 @@ internal sealed class TerminalApp : IDisposable
 
     private void BuildLayout()
     {
-        _top = new Window { Title = "ParrotCode.Net" };
+        // Toplevel 无边框无标题栏，继承全局 TopLevel 配色（终端原生色）
+        _top = new Toplevel();
 
-        // 顶部状态栏（固定 1 行）
+        // 顶部状态栏（固定 1 行）——内置 Label 子类
         _statusBarView = new StatusBarView
         {
             X = 0,
@@ -80,42 +88,68 @@ internal sealed class TerminalApp : IDisposable
         };
         _statusBarView.Update(_providerConfig, _securityLevel, _tuiConfig, _registry!);
 
-        // 中间对话区（填充剩余，底部留 1 行给输入框）
+        // 分割线：状态栏下方（内置 LineView）
+        var sep1 = new LineView
+        {
+            X = 0,
+            Y = Pos.Bottom(_statusBarView),
+            Width = Dim.Fill(),
+            Height = 1
+        };
+
+        // 中间对话区（内置 ListView 子类，填充剩余，底部留 2 行给分割线+输入框）
         _chatView = new ChatView
         {
             X = 0,
-            Y = Pos.Bottom(_statusBarView),  // = 1
+            Y = Pos.Bottom(sep1),
             Width = Dim.Fill(),
-            Height = Dim.Fill(1)  // 底部预留 1 行
+            Height = Dim.Fill(2)  // 底部预留 2 行（分割线 + 输入框）
         };
         // 7c-1：放静态占位内容
         _chatView.AppendStaticMessage("ParrotCode.Net Terminal 模式（7c-1 骨架）");
         _chatView.AppendStaticMessage("输入框仅回显，不接 Agent（7c-2 接入）");
+        _chatView.AppendStaticMessage("输入 /exit 退出，/clear 清空对话区");
 
-        // 底部输入框（固定 1 行）
-        _inputFieldView = new InputFieldView
+        // 分割线：输入框上方（内置 LineView）
+        var sep2 = new LineView
         {
             X = 0,
-            Y = Pos.Bottom(_chatView),  // 贴在对话区下方
+            Y = Pos.Bottom(_chatView),
             Width = Dim.Fill(),
             Height = 1
         };
-        _inputFieldView.Submit += OnInputSubmit;
+
+        // 底部输入框（内置 TextField 子类，固定 1 行）
+        _inputFieldView = new InputFieldView
+        {
+            X = 0,
+            Y = Pos.Bottom(sep2),
+            Width = Dim.Fill(),
+            Height = 1
+        };
         _inputFieldView.ExitRequested += () => Application.RequestStop(_top!);
 
-        _top.Add(_statusBarView, _chatView, _inputFieldView);
-
-        // 确保输入框获得焦点
+        _top.Add(_statusBarView, sep1, _chatView, sep2, _inputFieldView);
         _inputFieldView.SetFocus();
     }
 
     /// <summary>
-    /// 7c-1 输入提交处理：在主线程同步处理输入。
-    /// 7c-1 只回显，不接 AgentLoop。
+    /// AddIdle 回调：轮询输入 Channel，不阻塞事件循环。
+    /// 返回 true 保持 Idle 活跃，false 停止（应用退出时）。
     /// </summary>
-    private void OnInputSubmit(string line)
+    private bool IdleCallback()
     {
-        // 斜杠命令硬编码分发（保留 7a 的退出逻辑）
+        if (_inputFieldView!.Submits.TryRead(out var line))
+        {
+            HandleUserInput(line);
+        }
+        return true;  // 保持 Idle
+    }
+
+    /// <summary>处理用户输入行。</summary>
+    private void HandleUserInput(string line)
+    {
+        // 斜杠命令硬编码分发
         if (line is "/exit" or "/quit")
         {
             Application.RequestStop(_top!);
@@ -126,6 +160,12 @@ internal sealed class TerminalApp : IDisposable
             _chatView!.ClearMessages();
             return;
         }
+        if (line is "/help")
+        {
+            _chatView!.AppendStaticMessage("可用命令：/clear /exit /help");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(line)) return;
 
         // 7c-1：只回显，不接 Agent
         _chatView!.AppendStaticMessage($"❯ {line}");

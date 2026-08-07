@@ -36,10 +36,10 @@
 
 | 工作项 | 说明 |
 |--------|------|
-| HitlDialog 模态对话框 | 替代 7b 的内联渲染，用 Terminal.Gui Dialog |
+| HitlDialog 模态对话框 | 替代 7b 的内联渲染，用内置 Dialog + Label + Button |
 | HitlPrompt 改为委托 HitlDialog | 保持 IHitlGate 接口不变 |
-| SpinnerIndicator 动画 | 工具执行时显示盲文点动画 |
-| InputFieldView 增强 | Tab 补全 + 历史导航 |
+| SpinnerIndicator 动画 | 工具执行时显示盲文点动画（内置 Label + AddTimeout） |
+| InputFieldView 增强 | Tab 补全 + 历史导航（基于 TextField，仅覆写少量按键） |
 | 删除旧文件 | TuiApp/StatusBar/InputReader/ConsoleEventRenderer |
 | 移除 IConsole | Terminal.Gui 自带抽象 |
 | 移除 Spectre.Console 依赖 | 7c 迁移完成 |
@@ -60,8 +60,8 @@
 
 ```
 Tui/
-├── HitlDialog.cs             # HITL 模态对话框
-└── SpinnerIndicator.cs       # 盲文点 spinner 动画
+├── HitlDialog.cs             # HITL 模态对话框：内置 Dialog + Label + Button
+└── SpinnerIndicator.cs       # 盲文点 spinner：内置 Label + AddTimeout
 ```
 
 ### 2.2 修改文件（4 个）
@@ -69,7 +69,7 @@ Tui/
 ```
 Tui/
 ├── HitlPrompt.cs             # 改为委托 HitlDialog（保持 IHitlGate）
-├── InputFieldView.cs         # 增强 Tab 补全 + 历史导航
+├── InputFieldView.cs         # 增强 Tab 补全 + 历史导航（基于 TextField）
 ├── TerminalApp.cs            # 注入 HitlPrompt + Spinner 接入
 └── ChatView.cs               # 接入 Spinner 显示（工具执行时）
 App/
@@ -102,9 +102,9 @@ Tui/
 
 ## 三、详细设计
 
-### 3.1 HitlDialog——模态对话框
+### 3.1 HitlDialog——模态对话框（内置 Dialog + Label + Button）
 
-**职责**：模态 Dialog，显示工具调用信息 + A/S/P/D 按键。弹出时暂停主循环，用户选择后关闭。
+**职责**：模态 Dialog，显示工具调用信息 + A/S/P/D 选项。用内置 `Button` 承载选项（鼠标可点、回车确认），同时保留 A/S/P/D/Esc 快捷键。弹出时暂停主循环，用户选择后关闭。
 
 ```csharp
 using System.Threading.Tasks;
@@ -115,14 +115,13 @@ using Terminal.Gui.Views;
 namespace ParrotCode;
 
 /// <summary>
-/// HITL 确认模态对话框（迭代 7c-3）。
-/// 替代 7b 的内联渲染（HitlPrompt + IConsole）。
+/// HITL 确认模态对话框（迭代 7c-3：内置 Dialog + Label + Button）。
 ///
 /// 工作原理：
 /// 1. HitlPrompt.RequestAsync 在 agentLoop 线程调用
-/// 2. 通过 MainLoop.Invoke 在主线程弹出 HitlDialog
-/// 3. Application.Run(dialog) 阻塞（嵌套事件循环），等待用户按键
-/// 4. 用户按 A/S/P/D/Esc，设置 TaskCompletionSource 结果
+/// 2. 通过 _app.Invoke 在主线程弹出 HitlDialog
+/// 3. _app.Run(dialog) 阻塞（嵌套事件循环），等待用户按键/点击
+/// 4. 用户按 A/S/P/D/Esc 或点 Button，设置 TaskCompletionSource 结果
 /// 5. dialog.RequestStop() 关闭，返回到 HitlPrompt.RequestAsync
 /// 6. HitlPrompt 返回决策
 /// </summary>
@@ -139,26 +138,41 @@ internal sealed class HitlDialog : Dialog
         X = Pos.Center();
         Y = Pos.Center();
         Width = 60;
-        Height = 8;
+        Height = 9;
 
-        // 对话框内容
+        // 信息 Label（内置）
         var argsText = Truncate(call.Input.GetRawText(), 50);
         var label = new Label
         {
-            X = 1,
-            Y = 1,
-            Width = Dim.Fill(),
-            Height = 4,
-            Text = $"⚠ 即将执行 {call.Name}\n" +
-                   $"参数: {argsText}\n\n" +
-                   $"按 A=本次  S=会话  P=永久  D=拒绝"
+            X = 1, Y = 1, Width = Dim.Fill(), Height = 4,
+            Text = $"⚠ 即将执行 {call.Name}\n参数: {argsText}"
         };
         Add(label);
 
-        // 确保对话框获得焦点
+        // 四个内置 Button（鼠标可点 + 默认高亮聚焦）
+        var btnA = new Button { X = 1,  Y = 6, Text = "A=本次" };
+        var btnS = new Button { X = 12, Y = 6, Text = "S=会话" };
+        var btnP = new Button { X = 23, Y = 6, Text = "P=永久" };
+        var btnD = new Button { X = 34, Y = 6, Text = "D=拒绝" };
+        btnA.Clicked += () => Decide(HitlChoice.AllowOnce);
+        btnS.Clicked += () => Decide(HitlChoice.AllowSession);
+        btnP.Clicked += () => Decide(HitlChoice.AllowPermanent);
+        btnD.Clicked += () => Decide(HitlChoice.Deny);
+        Add(btnA, btnS, btnP, btnD);
+
         CanFocus = true;
     }
 
+    private void Decide(HitlChoice choice)
+    {
+        var decision = choice == HitlChoice.Deny
+            ? HitlDecision.Deny("用户拒绝执行")
+            : new HitlDecision(choice.Value);
+        _tcs.TrySetResult(decision);
+        RequestStop();  // 关闭对话框
+    }
+
+    // 快捷键映射（Esc 默认拒绝——安全）
     protected override bool OnKeyDown(Key key)
     {
         var choice = key.KeyCode switch
@@ -167,22 +181,11 @@ internal sealed class HitlDialog : Dialog
             KeyCode.S => HitlChoice.AllowSession,
             KeyCode.P => HitlChoice.AllowPermanent,
             KeyCode.D => HitlChoice.Deny,
-            KeyCode.Esc => HitlChoice.Deny,  // Esc 默认拒绝（安全）
+            KeyCode.Esc => HitlChoice.Deny,
             _ => (HitlChoice?)null
         };
-
-        if (choice.HasValue)
-        {
-            var decision = choice == HitlChoice.Deny
-                ? HitlDecision.Deny("用户拒绝执行")
-                : new HitlDecision(choice.Value);
-
-            _tcs.TrySetResult(decision);
-            RequestStop();  // 关闭对话框
-            return true;
-        }
-
-        return false;  // 未处理的键交给基类
+        if (choice.HasValue) { Decide(choice.Value); return true; }
+        return base.OnKeyDown(key);  // 其余交给 Dialog 基类（Tab 焦点切换等）
     }
 
     private static string Truncate(string s, int max) =>
@@ -191,8 +194,9 @@ internal sealed class HitlDialog : Dialog
 ```
 
 **关键设计点**：
-- **模态**：`Dialog` 继承自 `Window`，`Application.Run(dialog)` 会启动嵌套事件循环，暂停外层循环。
-- **TaskCompletionSource**：用户按键后设置结果，`HitlPrompt` 的 `await` 完成。
+- **内置 Button**：鼠标可点、Tab 切焦点、回车确认——无需自绘选项。
+- **模态**：`Dialog` 继承自 `Window`，`_app.Run(dialog)` 启动嵌套事件循环，暂停外层循环。
+- **TaskCompletionSource**：用户按键/点击后设置结果，`HitlPrompt` 的 `await` 完成。
 - **Esc 默认拒绝**：安全设计，与 7b 一致。
 
 ### 3.2 HitlPrompt 改造——委托 HitlDialog
@@ -270,23 +274,22 @@ public sealed class HitlPrompt : IHitlGate
 - **MainLoop.Invoke**：`RequestAsync` 可能在后台线程调用（BatchToolExecutor），用 `_app.Invoke` 调度到主线程弹对话框。
 - **嵌套事件循环**：`_app.Run(dialog)` 启动嵌套循环，阻塞当前 `Invoke` 回调，直到用户选择。这个阻塞是在主线程的 `Invoke` 回调中，不影响后台的 agentLoop 线程（它在等待 `RequestAsync` 的 Task 完成）。
 
-### 3.3 SpinnerIndicator——盲文点动画
+### 3.3 SpinnerIndicator——盲文点动画（内置 Label）
 
-**职责**：工具执行时显示思考动画。
+**职责**：工具执行时显示思考动画。**不自绘**——继承内置 `Label`，用 `AddTimeout` 周期性更新 `Text`。
 
 ```csharp
 using Terminal.Gui.App;
 using Terminal.Gui.Drawing;
-using Terminal.Gui.ViewBase;
+using Terminal.Gui.Views;
 
 namespace ParrotCode;
 
 /// <summary>
-/// 盲文点 spinner 动画（迭代 7c-3）。
+/// 盲文点 spinner 动画（迭代 7c-3：继承内置 Label）。
 /// 工具执行时显示 Thinking⠋ → Thinking⠙ → ... 循环。
-/// 参照 Claude Code 的 spinner 设计。
 /// </summary>
-internal sealed class SpinnerIndicator : View
+internal sealed class SpinnerIndicator : Label
 {
     private static readonly string[] Frames = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
 
@@ -302,6 +305,7 @@ internal sealed class SpinnerIndicator : View
         _app = app;
         Width = 20;
         Height = 1;
+        ColorScheme = new ColorScheme { Normal = new Attribute(Color.BrightCyan, Color.Black) };
         Visible = false;  // 默认隐藏
     }
 
@@ -313,7 +317,7 @@ internal sealed class SpinnerIndicator : View
         _timeoutToken = _app.MainLoop.AddTimeout(TimeSpan.FromMilliseconds(100), () =>
         {
             _frame = (_frame + 1) % Frames.Length;
-            SetNeedsDraw();
+            Text = $"{Verb} {Frames[_frame]}";  // Label 设 Text 自动重绘
             return true;  // 继续
         });
     }
@@ -327,79 +331,73 @@ internal sealed class SpinnerIndicator : View
             _timeoutToken = null;
         }
         Visible = false;
-    }
-
-    protected override void OnDrawingContent()
-    {
-        SetAttribute(new Attribute(Color.BrightCyan, Color.Black));
-        DrawText(0, 0, $"{Verb}{Frames[_frame]}");
+        Text = "";
     }
 }
 ```
 
-### 3.4 InputFieldView 增强——Tab 补全 + 历史导航
+> **不再有 `OnDrawingContent` / `DrawText`**：Label 设 `Text` 即重绘。背景跟随终端（`ColorScheme.Normal` 只设前景）。
+
+### 3.4 InputFieldView 增强——Tab 补全 + 历史导航（基于 TextField）
+
+7c-1 已把 `InputFieldView` 改为 `: TextField`，缓冲即 `Text`，Backspace/IME/光标全部原生。7c-3 只新增 Tab 补全 + 历史导航两个按键分支。
 
 ```csharp
-// InputFieldView.cs 7c-3 增强（在 7c-1 基础上）
+// InputFieldView.cs 7c-3 增强（在 7c-1 的 TextField 基础上）
 
-/// <summary>
-/// 底部输入框 View（迭代 7c-3：增强 Tab 补全 + 历史导航）。
-/// </summary>
-internal sealed class InputFieldView : View
+internal sealed class InputFieldView : TextField
 {
-    private readonly StringBuilder _buffer = new();
-    private readonly Channel<string> _submitChannel = Channel.CreateUnbounded<string>();
     private readonly string[] _commands = { "/clear", "/exit", "/quit", "/help", "/status" };
     private readonly List<string> _history = new();
     private int _historyIndex = -1;
     private string? _savedBuffer;  // 历史导航时保存当前输入
 
-    // ... 7c-1 的字段和方法保留 ...
+    // ... 7c-1 的字段/构造/Enter/Esc/WaitForSubmitAsync 保留 ...
 
     protected override bool OnKeyDown(Key key)
     {
-        // ===== 7c-1 已有：Enter / Esc / Backspace / 普通字符 =====
-        // （略，见 7c-1 设计）
+        // ===== 7c-1 已有：Enter / Esc（见 7c-1 设计，此处略）=====
 
         // ===== 7c-3 新增：Tab 补全 =====
-        if (key.KeyCode == KeyCode.Tab && _buffer.Length > 0 && _buffer[0] == '/')
+        if (key.KeyCode == KeyCode.Tab)
         {
-            CompleteCommand();
-            SetNeedsDraw();
-            return true;
+            var buf = Text?.ToString() ?? "";
+            if (buf.Length > 0 && buf[0] == '/')
+            {
+                CompleteCommand(buf);
+                return true;  // 吞掉 Tab，避免焦点跳转
+            }
         }
 
         // ===== 7c-3 新增：历史导航 =====
         if (key.KeyCode == KeyCode.CursorUp && _history.Count > 0)
         {
             NavigateHistory(direction: 1);  // 向上（更早）
-            SetNeedsDraw();
             return true;
         }
         if (key.KeyCode == KeyCode.CursorDown && _historyIndex >= 0)
         {
             NavigateHistory(direction: -1);  // 向下（更新）
-            SetNeedsDraw();
             return true;
         }
 
-        // ... 7c-1 的其他处理 ...
+        // 其余按键（含 IME/Backspace/左右）交给 TextField 基类
+        return base.OnKeyDown(key);
     }
 
     /// <summary>
     /// Tab 补全 / 开头的命令。
     /// 唯一匹配→填充；多匹配→不填充（7c-3 简化，不显示候选列表）。
     /// </summary>
-    private void CompleteCommand()
+    private void CompleteCommand(string prefix)
     {
-        var prefix = _buffer.ToString();
         var matches = _commands
             .Where(c => c.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             .ToArray();
         if (matches.Length == 1)
         {
-            _buffer.Clear();
-            _buffer.Append(matches[0]);
+            Text = matches[0];             // TextField 原生重绘
+            CursorPosition = Text.Length;  // 光标移到末尾
         }
         // 多匹配或无匹配——不做任何事（7c-3 简化）
     }
@@ -415,40 +413,34 @@ internal sealed class InputFieldView : View
         // 第一次按 Up——保存当前输入，跳到最新一条历史
         if (_historyIndex == -1)
         {
-            _savedBuffer = _buffer.ToString();
+            _savedBuffer = Text?.ToString();
             _historyIndex = _history.Count - 1;
         }
         else
         {
             _historyIndex += direction;
-            // 越界检查
             if (_historyIndex < 0)
             {
                 // 超出最早历史——恢复保存的输入
-                _buffer.Clear();
-                if (_savedBuffer != null) _buffer.Append(_savedBuffer);
+                Text = _savedBuffer ?? "";
                 _historyIndex = -1;
                 return;
             }
-            if (_historyIndex >= _history.Count)
-            {
-                _historyIndex = _history.Count - 1;
-                return;
-            }
+            if (_historyIndex >= _history.Count) _historyIndex = _history.Count - 1;
         }
 
-        // 加载历史条目
-        _buffer.Clear();
-        _buffer.Append(_history[_historyIndex]);
+        Text = _history[_historyIndex];           // TextField 原生重绘
+        CursorPosition = Text.Length;             // 光标移到末尾
     }
 
-    // Enter 提交时记录历史
-    // （在 7c-1 的 Enter 处理中新增）
+    // Enter 提交时记录历史（在 7c-1 的 Enter 处理中新增）
     // if (!string.IsNullOrEmpty(line)) _history.Add(line);
     // _historyIndex = -1;
     // _savedBuffer = null;
 }
 ```
+
+> **与 7c-1 自绘版的区别**：不再有 `_buffer` / `SetNeedsDraw()` / `OnDrawingContent`。补全和导航直接写 `Text` + `CursorPosition`，重绘由 TextField 原生处理。
 
 ### 3.5 TerminalApp 改造——注入 HitlPrompt + Spinner
 
@@ -753,10 +745,10 @@ AgentLoop 线程                     主线程（Terminal.Gui）          用户
 
 ### 步骤 1：HitlDialog + HitlPrompt 改造
 
-- 实现 `HitlDialog`（模态 + A/S/P/D 按键）
+- 实现 `HitlDialog`（内置 Dialog + Label + 4×Button，A/S/P/D/Esc 快捷键）
 - `HitlPrompt` 改为委托 `HitlDialog`（注入 IApplication + dialogFactory）
 - 编写 `HitlDialogTests` + 适配 `HitlPromptTests`
-- **验证**：`dotnet test` HITL 测试通过
+- **验证**：`dotnet test` HITL 测试通过；鼠标点 Button 与按键都生效
 
 ### 步骤 2：TerminalApp 注入 HitlPrompt
 
@@ -766,15 +758,15 @@ AgentLoop 线程                     主线程（Terminal.Gui）          用户
 
 ### 步骤 3：SpinnerIndicator
 
-- 实现 `SpinnerIndicator`
+- 实现 `SpinnerIndicator : Label`（AddTimeout 更新 Text）
 - `TerminalApp` 装配 Spinner
 - `ProcessEvent` 接入 Spinner 控制（ToolCallStart→Start，ToolResult→Stop）
 - **验证**：工具执行时显示动画
 
 ### 步骤 4：InputFieldView 增强
 
-- Tab 补全（/ 前缀）
-- 历史导航（Up/Down）
+- Tab 补全（/ 前缀，写 Text + CursorPosition）
+- 历史导航（Up/Down，写 Text + CursorPosition）
 - 编写测试
 - **验证**：Tab 补全和历史导航正常
 
@@ -802,6 +794,7 @@ AgentLoop 线程                     主线程（Terminal.Gui）          用户
 |------|------|------|------|
 | 嵌套事件循环导致死锁 | 中 | 高 | 步骤 1 先单独验证 HitlDialog 弹框/关闭，不接 Agent |
 | `_app.Invoke` 同步阻塞行为不符预期 | 中 | 高 | 用 `MainLoop.Invoke` 替代，或用 Channel 通信 |
+| Button.Clicked 与 OnKeyDown 快捷键重复触发 | 低 | 低 | Decide 内用 `_tcs.TrySetResult`（幂等），重复调用无害 |
 | HITL 弹框期间后台线程继续写 Channel | 低 | 中 | BatchToolExecutor await RequestAsync，期间不产事件 |
 | 移除 Spectre.Console 后有遗漏引用 | 中 | 低 | 编译检查，逐个修复 |
 | Spinner 动画闪烁 | 低 | 低 | 调整 100ms 间隔 |

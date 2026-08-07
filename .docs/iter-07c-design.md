@@ -46,6 +46,31 @@
 - ❌ 不实现 Claude Code 的全部高级特性（多行输入、Vim 模式、@路径补全、虚拟滚动、主题系统）——这些留给后续迭代
 - ❌ 不引入斜杠命令系统（迭代 10）
 
+### 1.4 技术方案：优先使用 Terminal.Gui 内置控件
+
+**核心原则**：尽量使用 Terminal.Gui v2 自带控件（`Label` / `TextField` / `TextView` / `ListView` / `Dialog` / `Button` / `LineView` 等），**避免自定义 View 重写 `OnDrawingContent` / `OnKeyDown`**。
+
+**理由**：
+- 内置控件已处理键盘/鼠标/IME/光标/滚动/resize，省去大量易错的样板代码（7c 早期实践已证明自绘输入框的 IME 光标定位、鼠标全选等问题难以根除）。
+- 内置控件对终端原生背景色、宽字符、滚轮的兼容性更好。
+- 自定义代码只保留"业务语义"（消息格式化、事件渲染、历史导航、Tab 补全、HITL 决策映射），不碰底层绘制与输入解码。
+
+**控件选型**：
+
+| 区域 | 内置控件 | 自定义部分 |
+|------|---------|-----------|
+| 顶部状态栏 | `Label`（承载文本）+ `LineView`（底部分割线） | `StatusBarView` 薄封装：格式化字符串 + 设 `Text` |
+| 中间对话区 | `ListView`（原生滚动/选区）+ `DrawItem` 钩子 | `ChatView` 薄封装：消息列表 + `DrawItem` 上色 + 流式 flush |
+| 底部输入框 | `TextField`（原生输入/Backspace/IME/光标/选区） | `InputFieldView : TextField`：仅覆写 Enter/Esc/Tab/Up/Down |
+| HITL 对话框 | `Dialog` + `Label` + `Button` ×4 | `HitlDialog` 薄封装：组装 + A/S/P/D/Esc 映射 |
+| Spinner 动画 | `Label`（`Text` 随 `AddTimeout` 刷新） | `SpinnerIndicator` 薄封装：帧索引 + 启停 |
+
+> **边界**：`DrawItem` 是 `ListView` 公开的渲染扩展点（类似 WinForms `DrawItem`），属于"用内置控件 + 受支持的钩子"，不算自定义 View。`InputFieldView : TextField` 是继承内置控件并覆写少量按键，也不是从 `View` 起步的自绘。
+
+**颜色与背景**：
+- 不强刷背景色。状态栏/对话区/输入框的 `ColorScheme` 透明继承自顶层 `Top`，顶层用 `Attribute.Default` 让终端原生背景透出。
+- 仅在 `ListView.DrawItem` / `Label` 内按消息类型设前景色，背景跟随终端。
+
 ---
 
 ## 二、Claude Code UI 特征参考
@@ -129,12 +154,12 @@ Claude Code 用**模态对话框**（编号选项菜单 + 箭头导航）。7c �
 ```
 Tui/
 ├── TerminalApp.cs           # Terminal.Gui 主应用（替代 TuiApp）
-├── ChatView.cs               # 对话区视图（滚动 + 消息渲染）
+├── ChatView.cs               # 对话区：内置 ListView + DrawItem 上色（薄封装）
 ├── ChatMessage.cs            # 单条消息数据模型（类型 + 内容 + 颜色）
-├── StatusBarView.cs          # 顶部状态栏视图（替代 StatusBar.cs 的 Panel 渲染）
-├── InputFieldView.cs         # 底部输入框视图（替代 InputReader，支持 Tab 补全）
-├── HitlDialog.cs             # HITL 确认对话框（模态，替代 HitlPrompt）
-└── SpinnerIndicator.cs       # 盲文点 spinner 动画（工具执行时）
+├── StatusBarView.cs          # 顶部状态栏：内置 Label + LineView（薄封装）
+├── InputFieldView.cs         # 底部输入框：继承 TextField，仅覆写少量按键
+├── HitlDialog.cs             # HITL 确认对话框：内置 Dialog + Label + Button
+└── SpinnerIndicator.cs       # spinner 动画：内置 Label + AddTimeout（薄封装）
 ```
 
 #### 修改文件（3 个）
@@ -190,7 +215,9 @@ internal sealed class TerminalApp : IDisposable
     private IApplication? _app;
     private Window? _top;
     private StatusBarView? _statusBarView;
+    private LineView? _statusDivider;   // 状态栏底部分割线
     private ChatView? _chatView;
+    private LineView? _inputDivider;    // 输入框顶部分割线
     private InputFieldView? _inputFieldView;
 
     // Agent 装配
@@ -223,33 +250,51 @@ internal sealed class TerminalApp : IDisposable
 
     private void BuildLayout()
     {
+        // 顶层不刷背景：用 Attribute.Default 让终端原生背景透出
         _top = new Window { Title = "ParrotCode.Net" };
+        _top.ColorScheme = new ColorScheme { Normal = Attribute.Default };
 
-        // 顶部状态栏（固定 1 行）
+        // 顶部状态栏（固定 1 行）——内置 Label + 底部分割线
         _statusBarView = new StatusBarView { X = 0, Y = 0, Width = Dim.Fill(), Height = 1 };
         _statusBarView.Update(_providerConfig, _securityLevel, _tuiConfig, _registry);
-
-        // 中间对话区（填充剩余，底部留 1 行给输入框）
-        _chatView = new ChatView
+        _statusDivider = new LineView(Orientation.Horizontal)
         {
             X = 0,
             Y = Pos.Bottom(_statusBarView),  // = 1
             Width = Dim.Fill(),
-            Height = Dim.Fill(1)  // 底部预留 1 行
+            Height = 1
         };
 
-        // 底部输入框（固定 1 行）
+        // 中间对话区（内置 ListView，填充剩余，底部留 2 行给分割线+输入框）
+        _chatView = new ChatView
+        {
+            X = 0,
+            Y = Pos.Bottom(_statusDivider),  // = 2
+            Width = Dim.Fill(),
+            Height = Dim.Fill(2)  // 底部预留 2 行（分割线 + 输入框）
+        };
+
+        // 输入框顶部分割线
+        _inputDivider = new LineView(Orientation.Horizontal)
+        {
+            X = 0,
+            Y = Pos.Bottom(_chatView),
+            Width = Dim.Fill(),
+            Height = 1
+        };
+
+        // 底部输入框（继承 TextField，固定 1 行）
         _inputFieldView = new InputFieldView
         {
             X = 0,
-            Y = Pos.Bottom(_chatView),  // 贴在对话区下方
+            Y = Pos.Bottom(_inputDivider),  // 贴在分割线下方
             Width = Dim.Fill(),
             Height = 1
         };
         _inputFieldView.Submit += OnInputSubmit;  // Enter 提交
         _inputFieldView.ExitRequested += () => _app?.RequestStop();
 
-        _top.Add(_statusBarView, _chatView, _inputFieldView);
+        _top.Add(_statusBarView, _statusDivider, _chatView, _inputDivider, _inputFieldView);
     }
 
     private async Task InputLoopAsync()
@@ -307,22 +352,21 @@ internal sealed class TerminalApp : IDisposable
 - **跨线程 UI 更新**：AgentLoop 在后台线程跑，事件流读取在主线程的 Invoke 回调中更新 UI。
 - **不阻塞事件循环**：`await foreach` 在 Invoke 内会阻塞事件循环，需要用 `MainLoop.AddIdle` 分帧处理（见 4.8 线程模型）。
 
-### 4.2 ChatView——对话区
+### 4.2 ChatView——对话区（内置 ListView + DrawItem）
 
-**职责**：渲染消息历史 + 流式追加 + 自动滚动。
+**职责**：渲染消息历史 + 流式追加 + 自动滚动。**不自绘**——用内置 `ListView` 承载行，仅通过 `DrawItem` 钩子按消息类型上色。
 
 ```csharp
-internal sealed class ChatView : View
+internal sealed class ChatView : ListView
 {
     private readonly List<ChatMessage> _messages = new();
     private readonly StringBuilder _currentText = new();  // 当前流式文本缓冲
-    private bool _hasTextOnLine;
+    private bool _hasStreamingText;
 
     public ChatView()
     {
-        CanFocus = true;
-        ViewportSettings = ViewportSettingsFlags.HasVerticalScrollBar;
-        SetContentSize(new Size(0, 0));
+        CanFocus = false;  // 不抢焦点（焦点给输入框）；鼠标滚轮仍可滚动
+        Source = new ChatMessageListSource(_messages);  // 自定义 IListDataSource
     }
 
     /// <summary>追加用户消息。</summary>
@@ -330,7 +374,7 @@ internal sealed class ChatView : View
     {
         FlushCurrentText();
         _messages.Add(new ChatMessage(MessageType.User, text));
-        RebuildContent();
+        ScrollToBottom();
     }
 
     /// <summary>渲染 Agent 事件（流式）。</summary>
@@ -341,33 +385,40 @@ internal sealed class ChatView : View
             case AgentEvent.RoundStartEvent(var round):
                 FlushCurrentText();
                 _messages.Add(new ChatMessage(MessageType.System, $"── Round {round} ──"));
-                RebuildContent();
+                ScrollToBottom();
                 break;
 
             case AgentEvent.TextDeltaEvent(var text):
+                // 流式追加到缓冲；若尚无 assistant 槽位则创建一个可变槽位
+                if (!_hasStreamingText)
+                {
+                    _messages.Add(new ChatMessage(MessageType.Assistant, ""));
+                    _hasStreamingText = true;
+                }
                 _currentText.Append(text);
-                _hasTextOnLine = true;
-                UpdateStreamingText();
+                UpdateLastMessage(_currentText.ToString());
                 break;
 
             case AgentEvent.ToolCallStartEvent(var call):
                 FlushCurrentText();
                 _messages.Add(new ChatMessage(MessageType.ToolCall,
-                    $"⎿ → {call.Name}({Truncate(call.Input.GetRawText(), 80)})"));
-                RebuildContent();
+                    $"  ⎿ → {call.Name}({Truncate(call.Input.GetRawText(), 80)})"));
+                ScrollToBottom();
                 break;
 
             case AgentEvent.ToolResultEvent(_, var result):
+                FlushCurrentText();
                 var icon = result.Success ? "✓" : "✗";
                 var content = result.Success ? Truncate(result.Content, 200) : (result.Error ?? "未知错误");
                 _messages.Add(new ChatMessage(result.Success ? MessageType.ToolResult : MessageType.ToolError,
-                    $"⎿ {icon} {content}"));
-                RebuildContent();
+                    $"  ⎿ {icon} {content}"));
+                ScrollToBottom();
                 break;
 
             case AgentEvent.ToolBlockedEvent(var call, var reason):
-                _messages.Add(new ChatMessage(MessageType.System, $"⎿ ⛔ 拦截 {call.Name}: {reason}"));
-                RebuildContent();
+                FlushCurrentText();
+                _messages.Add(new ChatMessage(MessageType.System, $"  ⎿ ⛔ 拦截 {call.Name}: {reason}"));
+                ScrollToBottom();
                 break;
 
             case AgentEvent.AgentDoneEvent:
@@ -377,69 +428,93 @@ internal sealed class ChatView : View
             case AgentEvent.MaxRoundsReachedEvent(var rounds):
                 FlushCurrentText();
                 _messages.Add(new ChatMessage(MessageType.Warning, $"⚠ 已达最大轮次 {rounds}"));
-                RebuildContent();
+                ScrollToBottom();
                 break;
 
             case AgentEvent.ErrorEvent(var msg, _):
                 FlushCurrentText();
                 _messages.Add(new ChatMessage(MessageType.Error, $"✗ 错误：{msg}"));
-                RebuildContent();
+                ScrollToBottom();
                 break;
 
             case AgentEvent.CancelledEvent:
                 FlushCurrentText();
                 _messages.Add(new ChatMessage(MessageType.System, "── 已取消 ──"));
-                RebuildContent();
+                ScrollToBottom();
                 break;
         }
     }
 
     private void FlushCurrentText()
     {
-        if (_hasTextOnLine && _currentText.Length > 0)
+        if (_hasStreamingText)
         {
-            _messages.Add(new ChatMessage(MessageType.Assistant, _currentText.ToString()));
+            // 流式槽位已存在，文本已在 TextDelta 实时更新；仅复位标志
             _currentText.Clear();
-            _hasTextOnLine = false;
-            RebuildContent();
+            _hasStreamingText = false;
+            ScrollToBottom();
         }
     }
 
-    /// <summary>重建内容并自动滚到底部。</summary>
-    private void RebuildContent()
+    /// <summary>更新最后一条消息文本（流式增量，不重建全部）。</summary>
+    private void UpdateLastMessage(string text)
     {
-        var lines = new List<string>();
-        foreach (var msg in _messages)
+        if (_messages.Count > 0)
         {
-            var formatted = msg.Format();
-            lines.AddRange(formatted.Split('\n'));
+            var last = _messages[^1];
+            _messages[^1] = last with { Content = text };
+            // 通知 ListView 重绘最后一行
+            SetSource(_messages);  // 轻量触发重绘；如性能不足改用 Source 的 RowRender 通知
+            ScrollToBottom();
         }
-        Text = string.Join(Environment.NewLine, lines);
-        SetContentSize(new Size(Viewport.Width, lines.Count));
-        ScrollToBottom();
     }
 
-    private void UpdateStreamingText()
-    {
-        // 流式更新最后一条 assistant 消息（不重建全部，性能优化）
-        // 简单实现：重建（消息少时足够快）
-        RebuildContent();
-    }
-
+    /// <summary>滚动到底部（ListView 原生 API）。</summary>
     private void ScrollToBottom()
     {
-        var contentHeight = GetContentSize().Height;
-        Viewport = Viewport with { Location = new Point(0, Math.Max(0, contentHeight - Viewport.Height)) };
+        if (_messages.Count > 0)
+            SelectedIndex = _messages.Count - 1;  // ListView 原生：选中即滚动可视
     }
 
     private static string Truncate(string s, int max) => s.Length <= max ? s : s[..(max - 3)] + "...";
 }
+
+/// <summary>
+/// ChatView 的 IListDataSource 实现：按行展开多行消息 + 在 Render 调用 DrawItem 时上色。
+/// </summary>
+internal sealed class ChatMessageListSource : IListDataSource
+{
+    private readonly List<ChatMessage> _messages;
+    public ChatMessageListSource(List<ChatMessage> messages) => _messages = messages;
+
+    public int Count => _messages.Count;
+    public int Length => _messages.Count;
+
+    public void Render(ListView container, ConsoleDriver driver, bool selected, int index, int col, int line, int width)
+    {
+        // 受支持的 DrawItem 钩子：只设前景色 + 写文本，不碰滚动/布局
+        var msg = _messages[index];
+        var color = msg.GetColor();
+        container.SetAttribute(new Attribute(color, container.GetNormalColor().Background));
+        container.Move(col, line);
+        driver.AddStr(TruncateForDisplay(msg.Format(), width));
+    }
+
+    public bool IsMarked(int index) => false;
+    public void SetMark(int index, bool value) { }
+    public IList ToList() => _messages;
+
+    private static string TruncateForDisplay(string s, int width) =>
+        s.Length <= width ? s : s[..Math.Max(0, width - 3)] + "...";
+}
 ```
 
 **关键设计点**：
-- **消息列表模型**：`List<ChatMessage>` 存储所有消息，流式文本用 `_currentText` 缓冲，完成时 flush 到列表。
-- **自动滚动**：每次 RebuildContent 后调 ScrollToBottom，确保新内容可见。
-- **性能**：简单实现用重建全部文本；消息量大时优化为增量更新（迭代 9+ 考虑）。
+- **继承 `ListView`**：滚动、滚轮、选区、resize 全部由内置控件处理，不自实现 `SetContentSize`/`Viewport`。
+- **`IListDataSource.Render` 即 DrawItem 钩子**：只在渲染单行时设前景色 + 写文本，是 Terminal.Gui 公开的扩展点。
+- **流式增量**：`TextDelta` 直接改最后一条消息内容并重绘，不重建整列表。
+- **自动滚动**：`SelectedIndex = last` 触发 ListView 原生滚动到底。
+- **不抢焦点**：`CanFocus = false`，焦点留给输入框；鼠标滚轮滚动仍可用。
 
 ### 4.3 ChatMessage——消息数据模型
 
@@ -488,12 +563,12 @@ internal sealed record ChatMessage(MessageType Type, string Content)
 }
 ```
 
-### 4.4 StatusBarView——顶部状态栏
+### 4.4 StatusBarView——顶部状态栏（内置 Label）
 
-**职责**：固定顶部，显示 Provider/Model/Security/Context/Round/Tools。
+**职责**：固定顶部，显示 Provider/Model/Security/Context/Round/Tools。**不自绘**——继承 `Label`，只格式化字符串并设 `Text`。
 
 ```csharp
-internal sealed class StatusBarView : View
+internal sealed class StatusBarView : Label
 {
     private ProviderConfig? _providerConfig;
     private SecurityLevel _securityLevel;
@@ -505,13 +580,20 @@ internal sealed class StatusBarView : View
     public int EstimatedTokens
     {
         get => _estimatedTokens;
-        set { _estimatedTokens = value; SetNeedsDraw(); }
+        set { _estimatedTokens = value; RefreshText(); }
     }
 
     public int CurrentRound
     {
         get => _currentRound;
-        set { _currentRound = value; SetNeedsDraw(); }
+        set { _currentRound = value; RefreshText(); }
+    }
+
+    public StatusBarView()
+    {
+        CanFocus = false;  // 状态栏不获取焦点
+        // 背景透明继承顶层；仅设前景色
+        ColorScheme = new ColorScheme { Normal = new Attribute(Color.White, Color.Black) };
     }
 
     public void Update(ProviderConfig config, SecurityLevel level, TuiConfig tui, ToolRegistry registry)
@@ -520,48 +602,35 @@ internal sealed class StatusBarView : View
         _securityLevel = level;
         _contextWindowTokens = tui.ContextWindowTokens ?? 64000;
         _toolCount = registry.GetAll().Count;
-        SetNeedsDraw();
+        RefreshText();
     }
 
-    protected override void OnDrawingContent()
+    /// <summary>格式化并刷新 Text（Label 原生重绘）。</summary>
+    private void RefreshText()
     {
-        // 直接绘制到 Viewport（Terminal.Gui v2 的绘制方式）
-        var ratio = _contextWindowTokens > 0 ? (double)_estimatedTokens / _contextWindowTokens : 0;
-        var ratioColor = ratio >= 0.9 ? Color.Red : ratio >= 0.7 ? Color.Yellow : Color.Green;
-        var pct = (int)(ratio * 100);
-        var securityColor = _securityLevel switch
-        {
-            SecurityLevel.Strict => Color.Red,
-            SecurityLevel.Normal => Color.Yellow,
-            SecurityLevel.Permisive => Color.Green,
-            _ => Color.DarkGray
-        };
-
-        var text = $"provider={_providerConfig?.Name} model={_providerConfig?.Model} " +
-                   $"security={_securityLevel} ctx={pct}%({_estimatedTokens}/{_contextWindowTokens}) " +
-                   $"round={_currentRound} tools={_toolCount}";
-
-        // 用 Attribute 设置颜色
-        SetAttribute(new Attribute(Color.White, Color.Black));
-        DrawText(0, 0, text);
+        var pct = _contextWindowTokens > 0 ? (int)((double)_estimatedTokens / _contextWindowTokens * 100) : 0;
+        Text = $"provider={_providerConfig?.Name} model={_providerConfig?.Model} " +
+               $"security={_securityLevel} ctx={pct}%({_estimatedTokens}/{_contextWindowTokens}) " +
+               $"round={_currentRound} tools={_toolCount}";
+        // Label 设 Text 即自动 SetNeedsDraw，无需手动调
     }
 }
 ```
 
-> **注**：Terminal.Gui v2 的绘制 API 细节在实现时确认。可以用 `Label` 子视图简化，或直接重写 `OnDrawingContent`。
+> **注**：ctx 占比/安全等级的阈值颜色如需分段上色，可用 `TextFormatter` 的 markup（`[color]...[/]`）或拆成多个 `Label` 子视图。7c-1 先单色，7c-3 视需要加 markup。
 
-### 4.5 InputFieldView——底部输入框
+### 4.5 InputFieldView——底部输入框（继承 TextField）
 
-**职责**：固定底部，支持文本输入 + Tab 补全 + 历史导航 + Enter 提交。
+**职责**：固定底部，支持文本输入 + Tab 补全 + 历史导航 + Enter 提交。**不自绘、不自处理 Backspace/IME/光标**——继承内置 `TextField`，只覆写 5 个业务按键。
 
 ```csharp
-internal sealed class InputFieldView : View
+internal sealed class InputFieldView : TextField
 {
-    private readonly StringBuilder _buffer = new();
     private readonly Channel<string> _submitChannel = Channel.CreateUnbounded<string>();
     private readonly string[] _commands = { "/clear", "/exit", "/quit", "/help", "/status" };
     private readonly List<string> _history = new();
     private int _historyIndex = -1;
+    private string? _savedBuffer;
 
     public ChannelReader<string> Submits => _submitChannel.Reader;
     public event Action<string>? Submit;
@@ -570,11 +639,10 @@ internal sealed class InputFieldView : View
     public InputFieldView()
     {
         CanFocus = true;
-        // 绑定按键
-        KeyBindings.Add(Key.Enter, Command.Accept);
-        KeyBindings.Add(Key.Backspace, Command.DeleteCharLeft);
-        KeyBindings.Add(Key.Tab, Command.Tab);
-        KeyBindings.Add(Key.Esc, Command.Quit);
+        // TextField 原生处理：普通字符/Backspace/方向键/IME/光标/选区/复制粘贴
+        Caption = "> ";                                       // 占位提示符
+        CaptionColor = new Attribute(Color.BrightBlue, Color.Black);
+        ColorScheme = new ColorScheme { Normal = new Attribute(Color.White, Color.Black) };
     }
 
     public async Task<string?> WaitForSubmitAsync(CancellationToken ct)
@@ -585,77 +653,68 @@ internal sealed class InputFieldView : View
 
     protected override bool OnKeyDown(Key key)
     {
+        // Enter——提交（直接拿 TextField.Text）
         if (key.KeyCode == KeyCode.Enter)
         {
-            var line = _buffer.ToString();
-            _buffer.Clear();
+            var line = Text?.ToString() ?? "";
+            Text = "";
             if (!string.IsNullOrEmpty(line)) _history.Add(line);
             _historyIndex = -1;
+            _savedBuffer = null;
             _submitChannel.Writer.TryWrite(line);
-            SetNeedsDraw();
+            Submit?.Invoke(line);
             return true;
         }
-        if (key.KeyCode == KeyCode.Esc)
+        if (key.KeyCode == KeyCode.Esc) { ExitRequested?.Invoke(); return true; }
+
+        // Tab——/ 命令补全
+        if (key.KeyCode == KeyCode.Tab)
         {
-            ExitRequested?.Invoke();
-            return true;
+            var buf = Text?.ToString() ?? "";
+            if (buf.Length > 0 && buf[0] == '/')
+            {
+                var matches = _commands.Where(c => c.StartsWith(buf, StringComparison.OrdinalIgnoreCase)).ToArray();
+                if (matches.Length == 1) Text = matches[0];
+                return true;  // 吞掉 Tab，避免焦点跳转
+            }
         }
-        if (key.KeyCode == KeyCode.Backspace && _buffer.Length > 0)
-        {
-            _buffer.Remove(_buffer.Length - 1, 1);
-            SetNeedsDraw();
-            return true;
-        }
-        if (key.KeyCode == KeyCode.Tab && _buffer.Length > 0 && _buffer[0] == '/')
-        {
-            CompleteCommand();
-            SetNeedsDraw();
-            return true;
-        }
-        if (key.KeyCode == KeyCode.Up && _history.Count > 0)
-        {
-            NavigateHistory(1);
-            SetNeedsDraw();
-            return true;
-        }
-        if (key.KeyCode == KeyCode.Down && _historyIndex >= 0)
-        {
-            NavigateHistory(-1);
-            SetNeedsDraw();
-            return true;
-        }
-        if (!char.IsControl(key.AsRune))
-        {
-            _buffer.Append(key.AsRune);
-            SetNeedsDraw();
-            return true;
-        }
-        return false;
+
+        // Up/Down——历史导航
+        if (key.KeyCode == KeyCode.CursorUp && _history.Count > 0) { NavigateHistory(1); return true; }
+        if (key.KeyCode == KeyCode.CursorDown && _historyIndex >= 0) { NavigateHistory(-1); return true; }
+
+        // 其余按键（含中文 IME 组字、Backspace、左右、Home/End）交给 TextField 基类
+        return base.OnKeyDown(key);
     }
 
-    private void CompleteCommand()
+    private void NavigateHistory(int direction)
     {
-        var prefix = _buffer.ToString();
-        var matches = _commands.Where(c => c.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (matches.Length == 1) { _buffer.Clear(); _buffer.Append(matches[0]); }
-    }
-
-    private void NavigateHistory(int direction) { /* 略 */ }
-
-    protected override void OnDrawingContent()
-    {
-        SetAttribute(new Attribute(Color.BrightBlue, Color.Black));
-        DrawText(0, 0, "> ");
-        var color = _buffer.Length > 0 && _buffer[0] == '/' ? Color.Cyan : Color.White;
-        SetAttribute(new Attribute(color, Color.Black));
-        DrawText(2, 0, _buffer.ToString());
+        if (_historyIndex == -1)
+        {
+            _savedBuffer = Text?.ToString();
+            _historyIndex = _history.Count - 1;
+        }
+        else
+        {
+            _historyIndex += direction;
+            if (_historyIndex < 0) { Text = _savedBuffer ?? ""; _historyIndex = -1; return; }
+            if (_historyIndex >= _history.Count) _historyIndex = _history.Count - 1;
+        }
+        Text = _history[_historyIndex];
+        CursorPosition = Text.Length;  // TextField 原生 API
     }
 }
 ```
 
-### 4.6 HitlDialog——HITL 确认对话框
+**关键设计点**：
+- **继承 `TextField`**：输入/Backspace/IME 组字/光标定位/鼠标选区全部由内置控件处理——彻底规避 7c 早期"IME 临时字母出现在 `>` 左侧"等自绘问题。
+- **只覆写 5 个业务键**：Enter/Esc/Tab/Up/Down，其余 `return base.OnKeyDown(key)`。
+- **提示符**：用 `Caption`（占位文本）而非自绘 `"> "`，输入有内容时 Caption 自动隐藏。
+- **缓冲即 `Text`**：不再维护 `StringBuilder`，直接读写 `TextField.Text`。
 
-**职责**：模态对话框，显示工具调用信息 + A/S/P/D 选项。
+### 4.6 HitlDialog——HITL 确认对话框（内置 Dialog + Label + Button）
+
+**职责**：模态对话框，显示工具调用信息 + A/S/P/D 选项。用内置 `Button` 承载选项（鼠标可点、回车确认），同时保留 A/S/P/D/Esc 快捷键。
 
 ```csharp
 internal sealed class HitlDialog : Dialog
@@ -667,25 +726,39 @@ internal sealed class HitlDialog : Dialog
     public HitlDialog(ToolCall call)
     {
         Title = "HITL 确认";
-        X = Pos.Center();
-        Y = Pos.Center();
-        Width = 60;
-        Height = 8;
+        X = Pos.Center(); Y = Pos.Center();
+        Width = 60; Height = 9;
 
+        // 信息 Label
         var label = new Label
         {
-            X = 1, Y = 1, Width = Dim.Fill(), Height = 3,
-            Text = $"⚠ 即将执行 {call.Name}\n参数: {Truncate(call.Input.GetRawText(), 50)}\n\n按 A=本次 S=会话 P=永久 D=拒绝"
+            X = 1, Y = 1, Width = Dim.Fill(), Height = 4,
+            Text = $"⚠ 即将执行 {call.Name}\n参数: {Truncate(call.Input.GetRawText(), 50)}"
         };
         Add(label);
 
-        KeyBindings.Add(Key.A, Command.Custom);
-        KeyBindings.Add(Key.S, Command.Custom);
-        KeyBindings.Add(Key.P, Command.Custom);
-        KeyBindings.Add(Key.D, Command.Custom);
-        KeyBindings.Add(Key.Esc, Command.Quit);
+        // 四个内置 Button（鼠标可点 + 默认高亮聚焦）
+        var btnA = new Button { X = 1,  Y = 6, Text = "A=本次" };
+        var btnS = new Button { X = 12, Y = 6, Text = "S=会话" };
+        var btnP = new Button { X = 23, Y = 6, Text = "P=永久" };
+        var btnD = new Button { X = 34, Y = 6, Text = "D=拒绝" };
+        btnA.Clicked += () => Decide(HitlChoice.AllowOnce);
+        btnS.Clicked += () => Decide(HitlChoice.AllowSession);
+        btnP.Clicked += () => Decide(HitlChoice.AllowPermanent);
+        btnD.Clicked += () => Decide(HitlChoice.Deny);
+        Add(btnA, btnS, btnP, btnD);
     }
 
+    private void Decide(HitlChoice choice)
+    {
+        var decision = choice == HitlChoice.Deny
+            ? HitlDecision.Deny("用户拒绝")
+            : new HitlDecision(choice);
+        _tcs.TrySetResult(decision);
+        RequestStop();
+    }
+
+    // 快捷键映射（Esc 默认拒绝）
     protected override bool OnKeyDown(Key key)
     {
         var choice = key.KeyCode switch
@@ -697,16 +770,8 @@ internal sealed class HitlDialog : Dialog
             KeyCode.Esc => HitlChoice.Deny,
             _ => (HitlChoice?)null
         };
-        if (choice.HasValue)
-        {
-            var decision = choice == HitlChoice.Deny
-                ? HitlDecision.Deny("用户拒绝")
-                : new HitlDecision(choice.Value);
-            _tcs.TrySetResult(decision);
-            RequestStop();
-            return true;
-        }
-        return false;
+        if (choice.HasValue) { Decide(choice.Value); return true; }
+        return base.OnKeyDown(key);
     }
 
     private static string Truncate(string s, int max) => s.Length <= max ? s : s[..(max - 3)] + "...";
@@ -756,42 +821,45 @@ public sealed class HitlPrompt : IHitlGate
 
 > **注**：HITL 对话框的实现细节（如何在事件循环中弹出模态 + 等待结果）在实现时确认。Terminal.Gui v2 的 `Application.Run(dialog)` 支持嵌套运行（SessionStack），可实现"暂停当前循环，运行对话框，返回结果"。
 
-### 4.8 SpinnerIndicator——盲文点动画
+### 4.8 SpinnerIndicator——盲文点动画（内置 Label）
 
-**职责**：工具执行时显示思考动画。
+**职责**：工具执行时显示思考动画。**不自绘**——继承 `Label`，用 `AddTimeout` 周期性更新 `Text`。
 
 ```csharp
-internal sealed class SpinnerIndicator : View
+internal sealed class SpinnerIndicator : Label
 {
     private static readonly string[] Frames = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
+    private readonly IApplication _app;
     private int _frame;
     private object? _timeoutToken;
 
     public string Verb { get; set; } = "Thinking";
 
+    public SpinnerIndicator(IApplication app)
+    {
+        _app = app;
+        Width = 20; Height = 1;
+        ColorScheme = new ColorScheme { Normal = new Attribute(Color.BrightCyan, Color.Black) };
+        Visible = false;  // 默认隐藏
+    }
+
     public void Start()
     {
         _frame = 0;
-        _timeoutToken = Application.MainLoop.AddTimeout(TimeSpan.FromMilliseconds(100), () =>
+        Visible = true;
+        _timeoutToken = _app.MainLoop.AddTimeout(TimeSpan.FromMilliseconds(100), () =>
         {
             _frame = (_frame + 1) % Frames.Length;
-            SetNeedsDraw();
+            Text = $"{Verb} {Frames[_frame]}";  // Label 设 Text 自动重绘
             return true;  // 继续
         });
-        Visible = true;
     }
 
     public void Stop()
     {
-        if (_timeoutToken != null)
-            Application.MainLoop.RemoveTimeout(_timeoutToken);
+        if (_timeoutToken != null) { _app.MainLoop.RemoveTimeout(_timeoutToken); _timeoutToken = null; }
         Visible = false;
-    }
-
-    protected override void OnDrawingContent()
-    {
-        SetAttribute(new Attribute(Color.BrightCyan, Color.Black));
-        DrawText(0, 0, $"{Verb}{Frames[_frame]}");
+        Text = "";
     }
 }
 ```
@@ -865,17 +933,19 @@ private async Task RunAgentRoundAsync()
 
 ## 五、迁移映射表
 
-| 7a/7b（Spectre.Console） | 7c（Terminal.Gui v2） | 说明 |
-|--------------------------|----------------------|------|
+| 7a/7b（Spectre.Console） | 7c（Terminal.Gui v2 内置控件） | 说明 |
+|--------------------------|-------------------------------|------|
 | `TuiApp` | `TerminalApp` | 主应用，装配布局 + 事件循环 |
-| `StatusBar.Render()` 返回 IRenderable | `StatusBarView : View` | 固定顶部，重写 OnDrawingContent |
-| `InputReader.ReadLineWithCompletionAsync` | `InputFieldView : View` | 固定底部，按键处理 + Channel 提交 |
-| `ConsoleEventRenderer.RenderEvent` | `ChatView.RenderEvent` | 消息列表 + 流式追加 + 自动滚动 |
-| `HitlPrompt`（IConsole + ReadKey） | `HitlPrompt`（委托 `HitlDialog`） | 模态对话框 |
-| `AnsiConsole.Write(IRenderable)` | View 的 OnDrawingContent | Terminal.Gui 绘制 |
+| `StatusBar.Render()` 返回 IRenderable | `StatusBarView : Label` | 继承内置 Label，设 Text |
+| `InputReader.ReadLineWithCompletionAsync` | `InputFieldView : TextField` | 继承内置 TextField，仅覆写 5 键 |
+| `ConsoleEventRenderer.RenderEvent` | `ChatView : ListView` + `IListDataSource.Render` | 内置 ListView + DrawItem 钩子 |
+| `HitlPrompt`（IConsole + ReadKey） | `HitlPrompt`（委托 `HitlDialog`） | 内置 Dialog + Label + Button |
+| `AnsiConsole.Write(IRenderable)` | 内置控件 `Text` 属性 / `DrawItem` 钩子 | 不自绘 |
+| 状态栏/输入框分割线 | `LineView(Orientation.Horizontal)` | 内置控件 |
+| Spinner 动画 | `SpinnerIndicator : Label` | 继承内置 Label + AddTimeout |
 | `IConsole` 抽象 | **移除** | Terminal.Gui 自带抽象层 |
 | `EventRenderer`（已删） | 不需要 | ChatView 直接渲染 |
-| Panel/Markup 颜色 | Scheme/Attribute | 颜色系统迁移 |
+| Panel/Markup 颜色 | `ColorScheme` / `DrawItem` 设前景色 | 颜色系统迁移 |
 
 ---
 

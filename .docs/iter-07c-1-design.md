@@ -30,13 +30,23 @@
 | 问题 | 验证方式 | 失败对策 |
 |------|---------|---------|
 | Terminal.Gui v2 的 `Application.Create().Init()` 是否如文档所述 | 启动空白窗口 | 调整为 v1 兼容写法 |
-| `Pos.Bottom` / `Dim.Fill(1)` 是否能实现三段式布局 | 布局三个 View | 用绝对坐标兜底 |
-| `OnDrawingContent` 重写是否能自定义绘制 | StatusBarView 绘制状态文本 | 改用 Label 子视图 |
+| `Pos.Bottom` / `Dim.Fill(n)` 是否能实现三段式布局（含 2 条分割线） | 布局 5 个控件 | 用绝对坐标兜底 |
+| 内置 `Label`/`TextField`/`ListView`/`LineView` 的属性与事件是否符合预期 | 装配后能显示/输入 | 退回更基础的内置控件或查阅 v2 API |
+| `TextField` 的 IME 组字 / Backspace / 光标是否原生可用 | 输入中文测试 | 这是内置控件，不应出错；如异常查 v2 文档 |
+| 顶层 `Attribute.Default` 能否让终端原生背景透出（不刷蓝） | 启动后观察背景 | 调整 `ColorScheme.Normal` |
 | 终端 resize 时 Pos/Dim 是否自动重布局 | 手动调整窗口大小 | 监听 Resized 事件手动重算 |
-| 中文/宽字符在 Viewport 中渲染是否正常 | 输入中文测试 | 调整 Driver 或编码 |
 | `MainLoop.Invoke` 跨线程是否工作 | 简单跨线程更新测试 | 用 AddIdle 替代 |
 
-### 1.3 非目标（明确不做）
+### 1.3 技术方案（与父文档一致）
+
+**优先使用 Terminal.Gui 内置控件，不自绘**：
+- `StatusBarView : Label`（设 `Text`）
+- `ChatView : ListView`（+ `IListDataSource.Render` 钩子，7c-1 暂用静态字符串列表）
+- `InputFieldView : TextField`（仅覆写 Enter/Esc）
+- 分割线用内置 `LineView`
+- 顶层 `ColorScheme.Normal = Attribute.Default` 让终端原生背景透出
+
+### 1.4 非目标（明确不做）
 
 - ❌ 不接入 AgentLoop（不调 provider，不跑 ReAct 循环）
 - ❌ 不做流式渲染（ChatView 只放静态占位）
@@ -46,7 +56,7 @@
 - ❌ 不移除 Spectre.Console 依赖
 - ❌ 不移除 IConsole 抽象
 
-### 1.4 与旧代码并存策略
+### 1.5 与旧代码并存策略
 
 本迭代**新增** `TerminalApp`，**不修改** `TuiApp`。通过配置开关切换：
 
@@ -66,10 +76,10 @@ tui:
 
 ```
 Tui/
-├── TerminalApp.cs           # Terminal.Gui 主应用骨架
-├── StatusBarView.cs          # 顶部状态栏 View（静态内容）
-├── ChatView.cs               # 对话区 View（静态占位 + 滚动能力）
-└── InputFieldView.cs         # 底部输入框 View（基础输入 + 回显）
+├── TerminalApp.cs           # Terminal.Gui 主应用骨架（装配内置控件）
+├── StatusBarView.cs          # 顶部状态栏 : Label（内置）+ 静态内容
+├── ChatView.cs               # 对话区 : ListView（内置）+ 静态占位 + 滚动
+└── InputFieldView.cs         # 底部输入框 : TextField（内置）+ Enter/Esc
 ```
 
 ### 2.2 修改文件（2 个）
@@ -129,7 +139,9 @@ internal sealed class TerminalApp : IDisposable
     private IApplication? _app;
     private Window? _top;
     private StatusBarView? _statusBarView;
+    private LineView? _statusDivider;   // 状态栏底部分割线（内置 LineView）
     private ChatView? _chatView;
+    private LineView? _inputDivider;    // 输入框顶部分割线（内置 LineView）
     private InputFieldView? _inputFieldView;
 
     // 7c-1 不接 Agent，但保留字段供 7c-2 使用
@@ -178,42 +190,54 @@ internal sealed class TerminalApp : IDisposable
 
     private void BuildLayout()
     {
+        // 顶层不刷背景：用 Attribute.Default 让终端原生背景透出
         _top = new Window { Title = "ParrotCode.Net" };
+        _top.ColorScheme = new ColorScheme { Normal = Attribute.Default };
 
-        // 顶部状态栏（固定 1 行）
+        // 顶部状态栏（内置 Label 子类，固定 1 行）
         _statusBarView = new StatusBarView
         {
-            X = 0,
-            Y = 0,
-            Width = Dim.Fill(),
-            Height = 1
+            X = 0, Y = 0, Width = Dim.Fill(), Height = 1
         };
         _statusBarView.Update(_providerConfig, _securityLevel, _tuiConfig, _registry!);
 
-        // 中间对话区（填充剩余，底部留 1 行给输入框）
+        // 状态栏底部分割线（内置 LineView）
+        _statusDivider = new LineView(Orientation.Horizontal)
+        {
+            X = 0, Y = Pos.Bottom(_statusBarView), Width = Dim.Fill(), Height = 1
+        };
+
+        // 中间对话区（内置 ListView 子类，填充剩余，底部留 2 行给分割线+输入框）
         _chatView = new ChatView
         {
             X = 0,
-            Y = Pos.Bottom(_statusBarView),  // = 1
+            Y = Pos.Bottom(_statusDivider),   // = 2
             Width = Dim.Fill(),
-            Height = Dim.Fill(1)  // 底部预留 1 行
+            Height = Dim.Fill(2)              // 底部预留 2 行（分割线 + 输入框）
         };
         // 7c-1：放静态占位内容
         _chatView.AppendStaticMessage("ParrotCode.Net Terminal 模式（7c-1 骨架）");
         _chatView.AppendStaticMessage("输入框仅回显，不接 Agent（7c-2 接入）");
 
-        // 底部输入框（固定 1 行）
+        // 输入框顶部分割线（内置 LineView）
+        _inputDivider = new LineView(Orientation.Horizontal)
+        {
+            X = 0, Y = Pos.Bottom(_chatView), Width = Dim.Fill(), Height = 1
+        };
+
+        // 底部输入框（内置 TextField 子类，固定 1 行）
         _inputFieldView = new InputFieldView
         {
             X = 0,
-            Y = Pos.Bottom(_chatView),  // 贴在对话区下方
+            Y = Pos.Bottom(_inputDivider),    // 贴在分割线下方
             Width = Dim.Fill(),
             Height = 1
         };
         _inputFieldView.Submit += OnInputSubmit;
         _inputFieldView.ExitRequested += () => _app?.RequestStop();
 
-        _top.Add(_statusBarView, _chatView, _inputFieldView);
+        _top.Add(_statusBarView, _statusDivider, _chatView, _inputDivider, _inputFieldView);
+        _inputFieldView.SetFocus();  // 焦点给输入框
     }
 
     /// <summary>
@@ -264,23 +288,21 @@ internal sealed class TerminalApp : IDisposable
 - **并存策略**：不修改 TuiApp，App.cs 根据 config.mode 选择装配。
 - **生命周期**：`Application.Create().Init()` → `BuildLayout()` → `Run(top)` → `Dispose()`。
 
-### 3.2 StatusBarView——顶部状态栏
+### 3.2 StatusBarView——顶部状态栏（内置 Label）
 
-**职责**：固定顶部 1 行，显示 Provider/Model/Security/Context/Round/Tools。
+**职责**：固定顶部 1 行，显示 Provider/Model/Security/Context/Round/Tools。**不自绘**——继承内置 `Label`，只格式化字符串并设 `Text`。
 
 ```csharp
-using Terminal.Gui.App;
 using Terminal.Gui.Drawing;
-using Terminal.Gui.ViewBase;
+using Terminal.Gui.Views;
 
 namespace ParrotCode;
 
 /// <summary>
-/// 顶部状态栏 View（迭代 7c-1：静态内容）。
-/// 固定顶部 1 行，显示 provider/model/security/ctx/round/tools。
+/// 顶部状态栏（迭代 7c-1：继承内置 Label，静态内容）。
 /// 7c-1 不实时更新（不接 Agent），7c-2 接入 RoundStartEvent 后实时更新 round。
 /// </summary>
-internal sealed class StatusBarView : View
+internal sealed class StatusBarView : Label
 {
     private ProviderConfig? _providerConfig;
     private SecurityLevel _securityLevel;
@@ -292,18 +314,20 @@ internal sealed class StatusBarView : View
     public int EstimatedTokens
     {
         get => _estimatedTokens;
-        set { _estimatedTokens = value; SetNeedsDraw(); }
+        set { _estimatedTokens = value; RefreshText(); }
     }
 
     public int CurrentRound
     {
         get => _currentRound;
-        set { _currentRound = value; SetNeedsDraw(); }
+        set { _currentRound = value; RefreshText(); }
     }
 
     public StatusBarView()
     {
         CanFocus = false;  // 状态栏不获取焦点
+        // 背景透明继承顶层；仅设前景色
+        ColorScheme = new ColorScheme { Normal = new Attribute(Color.White, Color.Black) };
     }
 
     /// <summary>初始化状态栏数据。</summary>
@@ -313,110 +337,92 @@ internal sealed class StatusBarView : View
         _securityLevel = level;
         _contextWindowTokens = tui.ContextWindowTokens ?? 64000;
         _toolCount = registry.GetAll().Count;
-        SetNeedsDraw();
+        RefreshText();
     }
 
-    protected override void OnDrawingContent()
+    /// <summary>格式化并刷新 Text（Label 设 Text 即自动重绘，无需 OnDrawingContent）。</summary>
+    private void RefreshText()
     {
         if (_providerConfig is null) return;
-
-        var ratio = _contextWindowTokens > 0 ? (double)_estimatedTokens / _contextWindowTokens : 0;
-        var pct = (int)(ratio * 100);
-
-        var text = $"provider={_providerConfig.Name} model={_providerConfig.Model} " +
-                   $"security={_securityLevel} ctx={pct}%({_estimatedTokens}/{_contextWindowTokens}) " +
-                   $"round={_currentRound} tools={_toolCount}";
-
-        // 用 Attribute 设置颜色（白字黑底）
-        SetAttribute(new Attribute(Color.White, Color.Black));
-        // 绘制文本到 Viewport（具体 API 在实现时确认）
-        DrawText(0, 0, text);
+        var pct = _contextWindowTokens > 0 ? (int)((double)_estimatedTokens / _contextWindowTokens * 100) : 0;
+        Text = $"provider={_providerConfig.Name} model={_providerConfig.Model} " +
+               $"security={_securityLevel} ctx={pct}%({_estimatedTokens}/{_contextWindowTokens}) " +
+               $"round={_currentRound} tools={_toolCount}";
     }
 }
 ```
 
-> **实现时确认**：Terminal.Gui v2 的 `DrawText` API 签名。如果 `OnDrawingContent` 的绘制 API 与预期不符，改用 `Label` 子视图简化实现。7c-1 的目标之一就是验证这一点。
+> **不再有 `OnDrawingContent` / `DrawText`**：Label 自带文本渲染，设 `Text` 即重绘。ctx 占比的阈值颜色如需分段，7c-3 用 `TextFormatter` markup 处理。
 
-### 3.3 ChatView——对话区（静态占位）
+### 3.3 ChatView——对话区（内置 ListView，静态占位）
 
-**职责**：中间滚动区，7c-1 只放静态占位内容，验证滚动能力。
+**职责**：中间滚动区，7c-1 只放静态占位内容，验证滚动能力。**不自绘滚动**——继承内置 `ListView`，滚动/滚轮/resize 由控件原生处理。
 
 ```csharp
-using Terminal.Gui.App;
-using Terminal.Gui.ViewBase;
+using System.Collections;
+using Terminal.Gui.ConsoleDrivers;
+using Terminal.Gui.Views;
 
 namespace ParrotCode;
 
 /// <summary>
-/// 对话区 View（迭代 7c-1：静态占位 + 滚动能力验证）。
-/// 7c-2 将扩展为流式渲染 AgentEvent。
+/// 对话区（迭代 7c-1：继承内置 ListView，静态占位 + 滚动能力验证）。
+/// 7c-2 将扩展为 RenderEvent(AgentEvent) + DrawItem 上色。
 /// </summary>
-internal sealed class ChatView : View
+internal sealed class ChatView : ListView
 {
     private readonly List<string> _lines = new();
 
     public ChatView()
     {
-        CanFocus = true;
-        ViewportSettings = ViewportSettingsFlags.HasVerticalScrollBar;
-        SetContentSize(new Size(0, 0));
+        CanFocus = false;  // 不抢焦点（焦点给输入框）；鼠标滚轮仍可滚动
+        SetSource(_lines);
     }
 
     /// <summary>追加静态消息（7c-1 用，7c-2 改为 RenderEvent）。</summary>
     public void AppendStaticMessage(string text)
     {
         _lines.Add(text);
-        RebuildContent();
+        SetSource(_lines);  // 通知 ListView 数据变化
+        ScrollToBottom();
     }
 
     /// <summary>清空对话区。</summary>
     public void Clear()
     {
         _lines.Clear();
-        RebuildContent();
+        SetSource(_lines);
     }
 
-    /// <summary>重建内容并自动滚到底部。</summary>
-    private void RebuildContent()
-    {
-        Text = string.Join(Environment.NewLine, _lines);
-        SetContentSize(new Size(Viewport.Width, _lines.Count));
-        ScrollToBottom();
-    }
-
-    /// <summary>自动滚动到底部。</summary>
+    /// <summary>滚动到底部（ListView 原生：选中最后一项即滚入可视）。</summary>
     private void ScrollToBottom()
     {
-        var contentHeight = GetContentSize().Height;
-        Viewport = Viewport with
-        {
-            Location = new Point(0, Math.Max(0, contentHeight - Viewport.Height))
-        };
+        if (_lines.Count > 0)
+            SelectedIndex = _lines.Count - 1;
     }
 }
 ```
 
-### 3.4 InputFieldView——底部输入框
+> **不再有 `SetContentSize` / `Viewport` / `ScrollToBottom` 自实现**：ListView 原生支持滚动条与滚轮。7c-2 用 `IListDataSource.Render` 钩子按消息类型上色，7c-1 暂用纯字符串列表。
 
-**职责**：固定底部 1 行，支持文本输入 + Enter 提交 + Esc 退出。7c-1 不做 Tab 补全（7c-3 加）。
+### 3.4 InputFieldView——底部输入框（继承 TextField）
+
+**职责**：固定底部 1 行，支持文本输入 + Enter 提交 + Esc 退出。**不自绘、不自处理 Backspace/IME/光标**——继承内置 `TextField`，7c-1 只覆写 Enter/Esc。
 
 ```csharp
-using System.Text;
 using System.Threading.Channels;
-using Terminal.Gui.App;
-using Terminal.Gui.Input;
-using Terminal.Gui.ViewBase;
+using Terminal.Gui.Drawing;
+using Terminal.Gui.Views;
 
 namespace ParrotCode;
 
 /// <summary>
-/// 底部输入框 View（迭代 7c-1：基础输入 + 回显 + Enter 提交）。
-/// 固定底部 1 行，通过 Channel 通知主循环有输入提交。
-/// 7c-3 将扩展 Tab 补全 + 历史导航。
+/// 底部输入框（迭代 7c-1：继承内置 TextField）。
+/// TextField 原生处理：普通字符/Backspace/方向键/IME 组字/光标/鼠标选区。
+/// 本迭代只覆写 Enter（提交）+ Esc（退出）。7c-3 加 Tab 补全 + 历史导航。
 /// </summary>
-internal sealed class InputFieldView : View
+internal sealed class InputFieldView : TextField
 {
-    private readonly StringBuilder _buffer = new();
     private readonly Channel<string> _submitChannel = Channel.CreateUnbounded<string>();
 
     /// <summary>提交事件的 ChannelReader。主循环用 ReadAllAsync 等待。</summary>
@@ -431,33 +437,29 @@ internal sealed class InputFieldView : View
     public InputFieldView()
     {
         CanFocus = true;
-        // 确保输入框获得焦点
-        // 7c-1：简单按键处理，不用 KeyBindings（7c-3 完善）
+        // 提示符用 Caption（占位），输入有内容时自动隐藏
+        Caption = "> ";
+        CaptionColor = new Attribute(Color.BrightBlue, Color.Black);
+        // 背景透明继承顶层；前景白
+        ColorScheme = new ColorScheme { Normal = new Attribute(Color.White, Color.Black) };
     }
 
     /// <summary>等待用户提交输入。</summary>
     public async Task<string?> WaitForSubmitAsync(CancellationToken ct)
     {
-        try
-        {
-            return await _submitChannel.Reader.ReadAsync(ct);
-        }
-        catch (OperationCanceledException)
-        {
-            return null;
-        }
+        try { return await _submitChannel.Reader.ReadAsync(ct); }
+        catch (OperationCanceledException) { return null; }
     }
 
     protected override bool OnKeyDown(Key key)
     {
-        // Enter——提交
+        // Enter——提交（直接读 TextField.Text）
         if (key.KeyCode == KeyCode.Enter)
         {
-            var line = _buffer.ToString();
-            _buffer.Clear();
+            var line = Text?.ToString() ?? "";
+            Text = "";  // TextField 原生清空 + 重绘
             _submitChannel.Writer.TryWrite(line);
             Submit?.Invoke(line);
-            SetNeedsDraw();
             return true;
         }
 
@@ -468,39 +470,13 @@ internal sealed class InputFieldView : View
             return true;
         }
 
-        // Backspace——删除
-        if (key.KeyCode == KeyCode.Backspace && _buffer.Length > 0)
-        {
-            _buffer.Remove(_buffer.Length - 1, 1);
-            SetNeedsDraw();
-            return true;
-        }
-
-        // 普通字符——追加
-        var ch = key.AsRune;
-        if (!char.IsControl(ch))
-        {
-            _buffer.Append(ch);
-            SetNeedsDraw();
-            return true;
-        }
-
-        return false;
-    }
-
-    protected override void OnDrawingContent()
-    {
-        // 绘制提示符 "> "
-        SetAttribute(new Attribute(Color.BrightBlue, Color.Black));
-        DrawText(0, 0, "> ");
-
-        // 绘制输入缓冲
-        var color = _buffer.Length > 0 && _buffer[0] == '/' ? Color.Cyan : Color.White;
-        SetAttribute(new Attribute(color, Color.Black));
-        DrawText(2, 0, _buffer.ToString());
+        // 其余按键（含中文 IME 组字、Backspace、左右、Home/End）交给 TextField 基类
+        return base.OnKeyDown(key);
     }
 }
 ```
+
+> **不再有 `StringBuilder _buffer` / `OnDrawingContent`**：缓冲即 `TextField.Text`，提示符即 `Caption`，输入/Backspace/IME 光标全部原生。7c-1 验证中文输入法光标定位是否正确（应不再出现临时字母漂到 `>` 左侧的问题）。
 
 ### 3.5 App.cs 修改——并存装配
 
@@ -558,17 +534,19 @@ public async Task RunAsync()
 | 7c1-03 | 配置 `tui.mode: "terminal"` 能启动 Terminal.Gui 窗口 | 手动运行 |
 | 7c1-04 | 窗口标题为 "ParrotCode.Net" | 手动 |
 | 7c1-05 | 顶部状态栏固定 1 行，显示 provider/model/security/ctx/round/tools | 手动 |
-| 7c1-06 | 底部输入框固定 1 行，显示 "> " 提示符 | 手动 |
+| 7c1-06 | 底部输入框固定 1 行，显示 "> " 提示符（Caption） | 手动 |
 | 7c1-07 | 中间对话区占满剩余空间 | 手动 |
 | 7c1-08 | 三段布局无重叠 | 手动 |
+| 7c1-08a | 状态栏下方与输入框上方各有一条分割线（LineView） | 手动 |
+| 7c1-08b | 背景为终端原生色，不被刷成蓝色 | 手动 |
 
 ### 4.3 输入与回显
 
 | 编号 | 标准 | 验证方式 |
 |------|------|---------|
-| 7c1-09 | 输入框能打字，实时回显 | 手动 |
-| 7c1-10 | Backspace 删除正确 | 手动 |
-| 7c1-11 | 中文输入正确显示 | 手动：输入"你好" |
+| 7c1-09 | 输入框能打字，实时回显（TextField 原生） | 手动 |
+| 7c1-10 | Backspace 删除正确（TextField 原生） | 手动 |
+| 7c1-11 | 中文输入正确显示，IME 组字时光标在正确位置（不在 `>` 左侧） | 手动：输入"你好" |
 | 7c1-12 | Enter 提交后，输入出现在对话区 | 手动 |
 | 7c1-13 | `/exit` 命令能退出程序 | 手动 |
 | 7c1-14 | Esc 能退出程序 | 手动 |
@@ -632,25 +610,27 @@ public async Task RunAsync()
 - `App.cs` 加 `mode == "terminal"` 分支装配 TerminalApp
 - **验证**：`dotnet run` + 配置 `mode: terminal` 能启动空白窗口
 
-### 步骤 2：三段式布局
+### 步骤 2：三段式布局（内置控件）
 
-- 实现 `StatusBarView`（固定顶部，静态内容）
-- 实现 `ChatView`（中间，静态占位）
-- 实现 `InputFieldView`（固定底部，基础输入）
-- `TerminalApp.BuildLayout` 装配三个 View
-- **验证**：能看到三段布局，输入框能打字
+- 实现 `StatusBarView : Label`（固定顶部，静态内容）
+- 实现 `ChatView : ListView`（中间，静态占位，原生滚动）
+- 实现 `InputFieldView : TextField`（固定底部，Caption 提示符）
+- 加 2 条内置 `LineView` 分割线
+- 顶层 `ColorScheme.Normal = Attribute.Default`（背景透出）
+- `TerminalApp.BuildLayout` 装配 5 个控件，焦点给输入框
+- **验证**：能看到三段布局 + 分割线，背景为终端原生色，输入框能打字
 
 ### 步骤 3：输入回显循环
 
-- `InputFieldView` 的 Enter/Esc/Backspace 处理
+- `InputFieldView` 仅覆写 Enter/Esc（Backspace/IME 交给 TextField 基类）
 - `TerminalApp.InputEchoLoopAsync` 读取输入 → 显示到 ChatView
 - 斜杠命令（/exit /clear）分发
-- **验证**：输入 → 回显 → 继续等待
+- **验证**：输入 → 回显 → 继续等待；中文输入法光标位置正确
 
 ### 步骤 4：滚动 + resize 验证
 
-- `ChatView` 的 `SetContentSize` + `ScrollToBottom`
-- 追加多条消息测试滚动
+- `ChatView` 用 ListView 原生滚动（`SelectedIndex` 滚到底）
+- 追加多条消息测试滚动 + 鼠标滚轮
 - 终端 resize 测试布局自适应
 - **验证**：滚动正常，resize 不乱
 
@@ -666,10 +646,11 @@ public async Task RunAsync()
 
 | 风险 | 概率 | 影响 | 对策 |
 |------|------|------|------|
-| Terminal.Gui v2 API 与文档结论有差异 | 中 | 高 | 步骤 1 先做空骨架验证，发现问题及时调整 |
-| `OnDrawingContent` 的 DrawText API 不符预期 | 中 | 中 | 改用 Label 子视图绘制 |
+| Terminal.Gui v2 内置控件 API 与文档结论有差异 | 中 | 高 | 步骤 1 先做空骨架验证 Label/TextField/ListView/LineView |
+| 顶层 `Attribute.Default` 仍刷蓝背景 | 中 | 高 | 改用 `ColorScheme` 全局覆盖 `Colors.Base`，或显式设 `Normal = new Attribute(Color.White, Color.Black)` 兜底 |
+| `TextField.Caption` 不符合提示符预期 | 中 | 低 | 退回在输入框左侧放一个独立 `Label`（"> "）作为提示符 |
 | FakeDriver 测试支持不完善 | 中 | 中 | 关键逻辑用纯 C# 测试，渲染逻辑用集成测试 |
-| 中文/宽字符渲染问题 | 低 | 中 | 步骤 2 验证中文输入 |
+| 中文/宽字符渲染问题 | 低 | 中 | TextField 原生支持，步骤 3 验证中文输入 |
 | `MainLoop.Invoke` 跨线程行为不符 | 低 | 中 | 用 `AddIdle` 替代 |
 
 ---

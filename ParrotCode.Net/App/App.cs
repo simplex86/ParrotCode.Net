@@ -38,7 +38,7 @@ internal sealed class App
         // 7c-1：根据 tui.mode 选择装配
         if (tuiConfig.Mode == "terminal")
         {
-            // 新 TerminalApp（Terminal.Gui v2）
+            // 新 TerminalApp（Terminal.Gui v2）——7c-1 不接 Agent，不需要 provider
             using var terminalApp = new TerminalApp(
                 _providerConfig,
                 _config.Agent,
