@@ -35,14 +35,13 @@ internal sealed class App
         var securityLevel = ParseSecurityLevel(_config.Security?.Level);
 
         // 7c-3：旧 TuiApp 已删除，统一走 TerminalApp
-        using var terminalApp = new TerminalApp(
-            _provider,
-            _providerConfig,
-            _config.Agent,
-            tuiConfig,
-            securityLevel,
-            _logger,
-            _ct);
+        using var terminalApp = new TerminalApp(_provider,
+                                                _providerConfig,
+                                                _config.Agent,
+                                                tuiConfig,
+                                                securityLevel,
+                                                _logger,
+                                                _ct);
         await terminalApp.RunAsync();
     }
 

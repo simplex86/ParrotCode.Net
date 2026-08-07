@@ -241,7 +241,9 @@ internal sealed class TerminalApp : IDisposable
         return true;  // 保持 Idle
     }
 
-    /// <summary>处理用户输入行。</summary>
+    /// <summary>
+    /// 处理用户输入行。
+    /// </summary>
     private void HandleUserInput(string line)
     {
         // 斜杠命令硬编码分发
@@ -279,7 +281,9 @@ internal sealed class TerminalApp : IDisposable
         StartAgentRound();
     }
 
-    /// <summary>启动一轮 AgentLoop，事件流通过 IdleCallback 消费。</summary>
+    /// <summary>
+    /// 启动一轮 AgentLoop，事件流通过 IdleCallback 消费。
+    /// </summary>
     private void StartAgentRound()
     {
         var executor = new ToolExecutor(_registry!, TimeSpan.FromSeconds(_agentConfig.ToolTimeoutSeconds ?? 30), _logger);
@@ -304,7 +308,9 @@ internal sealed class TerminalApp : IDisposable
         _agentTask = agentLoop.RunAsync(_history!, _sink, _ct);
     }
 
-    /// <summary>处理单个 Agent 事件（在主线程 AddIdle 回调中执行）。</summary>
+    /// <summary>
+    /// 处理单个 Agent 事件（在主线程 AddIdle 回调中执行）。
+    /// </summary>
     private void ProcessEvent(AgentEvent evt)
     {
         // 更新状态栏轮次

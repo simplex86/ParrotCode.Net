@@ -40,7 +40,9 @@ public sealed record AppConfig
     /// </summary>
     public TuiConfig? Tui { get; init; }
 
-    /// <summary>安全配置（7b 占位，迭代 8 接入真实拦截）。null 时默认 Normal。</summary>
+    /// <summary>
+    /// 安全配置（7b 占位，迭代 8 接入真实拦截）。null 时默认 Normal。
+    /// </summary>
     public SecurityConfig? Security { get; init; }
 }
 
@@ -95,13 +97,18 @@ public sealed record TuiConfig
     /// </summary>
     public int? ContextWindowTokens { get; init; }
 
-    /// <summary>是否启用 HITL，默认 true。false 时注入 NullHitlGate（7b 新增）。</summary>
+    /// <summary>
+    /// 是否启用 HITL，默认 true。false 时注入 NullHitlGate（7b 新增）。
+    /// </summary>
     public bool? EnableHitl { get; init; }
 }
 
-/// <summary>安全配置（7b 占位，迭代 8 接入真实拦截）。</summary>
+/// <summary>
+/// 安全配置（7b 占位，迭代 8 接入真实拦截）。</summary>
 public sealed record SecurityConfig
 {
-    /// <summary>安全等级："strict" | "normal"（默认）| "permissive"。7b 仅状态栏显示，不拦截。</summary>
+    /// <summary>
+    /// 安全等级："strict" | "normal"（默认）| "permissive"。7b 仅状态栏显示，不拦截。
+    /// </summary>
     public string? Level { get; init; }
 }
