@@ -47,13 +47,7 @@ internal sealed class App
 
     /// <summary>
     /// 解析安全等级字符串为 SecurityLevel 枚举。
-    /// 7b 仅状态栏显示，不做真实拦截（迭代 8 接入）。
-    /// 大小写不敏感；未配置或无效值默认 Normal。
+    /// 委托 SecurityLevelParser.Parse（迭代 8a 抽取，便于单测）。
     /// </summary>
-    private static SecurityLevel ParseSecurityLevel(string? level) => level?.ToLowerInvariant() switch
-    {
-        "strict" => SecurityLevel.Strict,
-        "permissive" or "permisive" => SecurityLevel.Permisive,  // 兼容 7a 拼写
-        _ => SecurityLevel.Normal  // 默认 Normal
-    };
+    private static SecurityLevel ParseSecurityLevel(string? level) => SecurityLevelParser.Parse(level);
 }
