@@ -7,6 +7,7 @@ namespace ParrotCode;
 /// 迭代 7a：渲染逻辑迁移到 TuiApp + EventRenderer + ConsoleEventRenderer，App 仅做装配。
 /// 迭代 7b：从 SecurityConfig.Level 解析 SecurityLevel 传给 TuiApp（仅状态栏显示，不拦截）。
 /// 迭代 7c-1：新增 tui.mode="terminal" 分支装配 TerminalApp（与 TuiApp 并存）。
+/// 迭代 7c-2：TerminalApp 接入 AgentLoop，传入 provider。
 /// </summary>
 internal sealed class App
 {
@@ -35,11 +36,12 @@ internal sealed class App
         // 7b：从 SecurityConfig.Level 解析 SecurityLevel（仅状态栏显示，迭代 8 接入真实拦截）
         var securityLevel = ParseSecurityLevel(_config.Security?.Level);
 
-        // 7c-1：根据 tui.mode 选择装配
+        // 7c-2：根据 tui.mode 选择装配
         if (tuiConfig.Mode == "terminal")
         {
-            // 新 TerminalApp（Terminal.Gui v2）——7c-1 不接 Agent，不需要 provider
+            // 新 TerminalApp（Terminal.Gui v2）——7c-2 接入 AgentLoop
             using var terminalApp = new TerminalApp(
+                _provider,
                 _providerConfig,
                 _config.Agent,
                 tuiConfig,

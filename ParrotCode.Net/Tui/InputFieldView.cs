@@ -1,6 +1,5 @@
 using System.Threading.Channels;
 using Terminal.Gui;
-using Color = Terminal.Gui.Color;
 
 namespace ParrotCode;
 
@@ -8,6 +7,7 @@ namespace ParrotCode;
 /// 底部输入框（迭代 7c-1：继承内置 TextField）。
 /// TextField 原生处理：普通字符/Backspace/方向键/IME 组字/光标/鼠标选区。
 /// 本迭代只覆写 Enter（提交）+ Esc（退出）。7c-3 加 Tab 补全 + 历史导航。
+/// ">" 提示符由 TerminalApp 中的独立 Label 提供（始终可见）。
 /// </summary>
 internal sealed class InputFieldView : TextField
 {
@@ -25,9 +25,6 @@ internal sealed class InputFieldView : TextField
     public InputFieldView()
     {
         CanFocus = true;
-        // 提示符用 Caption（占位），输入有内容时自动隐藏
-        Caption = "> ";
-        CaptionColor = Color.BrightBlue;
     }
 
     protected override bool OnKeyDown(Key key)
