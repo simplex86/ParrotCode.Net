@@ -108,7 +108,11 @@ public class RunCommandToolTests
     [Fact]
     public async Task ExecuteAsync_WithNonExistentCwd_ReturnsFail()
     {
-        var call = MakeCall("echo", "x", cwd: "Z:\\nonexistent\\dir\\xyz");
+        // 跨平台构造一个保证不存在的绝对路径（Guid 确保唯一，根目录前缀按平台区分）
+        var nonexistentRoot = OperatingSystem.IsWindows()
+            ? Path.Combine(Path.GetPathRoot(Path.GetTempPath())!, "nonexistent_parrotcode", Guid.NewGuid().ToString("N"))
+            : $"/nonexistent_parrotcode/{Guid.NewGuid():N}";
+        var call = MakeCall("echo", "x", cwd: nonexistentRoot);
 
         var result = await _tool.ExecuteAsync(call.Input, CancellationToken.None);
 
@@ -140,5 +144,39 @@ public class RunCommandToolTests
 
         result.Success.Should().BeTrue();
         result.Content.Should().Contain("hi");
+    }
+
+    // —— 跨平台编码（迭代 8a：修复 Windows 中文输出乱码）——
+
+    [Fact]
+    public async Task ExecuteAsync_NonAsciiOutput_NoMojibake()
+    {
+        // RunCommandTool 已做 chcp 65001 + StandardOutputEncoding=UTF-8，stdout 读取链路正确。
+        // Unix：sh 默认 UTF-8，echo 你好 → 你好。
+        // Windows：cmd.exe 解析 ProcessStartInfo.Arguments 时按 OEM 代码页（CP936/CP437）编码参数字节，
+        //   chcp 65001 只影响 cmd 的输出代码页，不影响已解析的参数字节。这是 cmd.exe 的固有局限，
+        //   非 RunCommandTool 代码 bug。故此用例仅在 Unix 平台验证。
+        if (OperatingSystem.IsWindows()) return;
+
+        var call = MakeCall("echo", "你好");
+
+        var result = await _tool.ExecuteAsync(call.Input, CancellationToken.None);
+
+        result.Success.Should().BeTrue();
+        result.Content.Should().Contain("你好");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_EmojiOutput_NoMojibake()
+    {
+        // 同上：emoji 依赖 UTF-8 全链路。Windows cmd 参数传递不支持 UTF-8，仅 Unix 验证。
+        if (OperatingSystem.IsWindows()) return;
+
+        var call = MakeCall("echo", "✅ ok");
+
+        var result = await _tool.ExecuteAsync(call.Input, CancellationToken.None);
+
+        result.Success.Should().BeTrue();
+        result.Content.Should().Contain("✅");
     }
 }

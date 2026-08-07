@@ -9,13 +9,19 @@ namespace ParrotCode;
 /// </summary>
 public enum SecurityLevel
 {
-    /// <summary>严格：只允许白名单路径读写。</summary>
+    /// <summary>
+    /// 严格：只允许白名单路径读写。
+    /// </summary>
     Strict,
 
-    /// <summary>普通：读放行、写询问。默认值。</summary>
+    /// <summary>
+    /// 普通：读放行、写询问。默认值。
+    /// </summary>
     Normal,
 
-    /// <summary>宽松：仅黑名单拦截。</summary>
+    /// <summary>
+    /// 宽松：仅黑名单拦截。
+    /// </summary>
     Permissive
 }
 
@@ -25,7 +31,9 @@ public enum SecurityLevel
 /// </summary>
 public static class SecurityLevelParser
 {
-    /// <summary>解析安全等级字符串。</summary>
+    /// <summary>
+    /// 解析安全等级字符串。
+    /// </summary>
     public static SecurityLevel Parse(string? level) => level?.ToLowerInvariant() switch
     {
         "strict" => SecurityLevel.Strict,

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 
 namespace ParrotCode;
@@ -53,13 +54,17 @@ public sealed class RunCommandTool : ToolBase
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-            CreateNoWindow = true
+            CreateNoWindow = true,
+            // 统一用 UTF-8 读取子进程输出（Windows 需配合下方 chcp 65001 切代码页）
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
         };
 
         // 构造完整命令行：Windows cmd /c "command args" / Unix sh -c "command args"
         var fullCommand = string.IsNullOrEmpty(args) ? command : $"{command} {args}";
         if (OperatingSystem.IsWindows())
-            psi.Arguments = $"/c {fullCommand}";
+            // chcp 65001 切换 cmd 代码页为 UTF-8，防止中文输出（git log / dotnet test / dir 中文文件名）乱码
+            psi.Arguments = $"/c chcp 65001 >nul && {fullCommand}";
         else
             psi.ArgumentList.Add("-c");
 

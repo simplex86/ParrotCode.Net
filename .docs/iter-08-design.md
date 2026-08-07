@@ -1118,6 +1118,16 @@ ParrotCode.Net-xUnit/
 | fork bomb | `:(){ :\|:& };:` | fork bomb |
 | 写块设备 | `dd of=/dev/sd*` | 写块设备 |
 | 格式化 | `mkfs /dev/` | 格式化块设备 |
+| **— Windows —** | | |
+| 递归删盘符根 | `rd /s ... C:\` | 递归删除盘符根 |
+| 递归删系统目录 | `rd /s ... C:\Windows / C:\Users` | 递归删除 Windows 系统目录 |
+| 删盘符根文件 | `del /s ... C:\*` | 递归删除盘符根文件 |
+| 格式化磁盘 | `format C:` | 格式化磁盘 |
+| 磁盘分区 | `diskpart` | 磁盘分区工具 |
+| PowerShell 远程执行 | `irm\|iwr\|curl \| iex\|powershell` | 远程脚本执行 |
+| cmd fork bomb | `%0\|%0` | fork bomb |
+
+> **跨平台策略**：Unix + Windows 规则全部加载（不匹配的无害）。`run_command` 在 Windows 用 `cmd /c`、Unix 用 `sh -c`，黑名单必须覆盖两个平台。完整规则见 [iter-08a-design.md](iter-08a-design.md) §3.3。
 
 ## 附录 C：拒绝原因格式
 

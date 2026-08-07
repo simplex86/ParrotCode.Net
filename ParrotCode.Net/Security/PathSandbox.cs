@@ -77,7 +77,9 @@ public sealed class PathSandbox
         }
     }
 
-    /// <summary>路径是否在任一白名单根子树内。</summary>
+    /// <summary>
+    /// 路径是否在任一白名单根子树内。
+    /// </summary>
     private bool IsWithinAnyRoot(string normalizedPath)
     {
         foreach (var root in GetAllRoots())
@@ -88,7 +90,9 @@ public sealed class PathSandbox
         return false;
     }
 
-    /// <summary>路径是否在指定的路径列表任一子树内。</summary>
+    /// <summary>
+    /// 路径是否在指定的路径列表任一子树内。
+    /// </summary>
     private bool IsInPaths(string normalizedPath, IReadOnlyList<string> paths)
     {
         foreach (var p in paths)
@@ -108,7 +112,9 @@ public sealed class PathSandbox
             yield return p;
     }
 
-    /// <summary>child 是否等于或位于 parent 目录下（按操作系统大小写规则）。</summary>
+    /// <summary>
+    /// child 是否等于或位于 parent 目录下（按操作系统大小写规则）。
+    /// </summary>
     private bool IsSameOrUnder(string child, string parent)
     {
         if (string.Equals(child, parent, _pathComparison))

@@ -156,6 +156,16 @@ public sealed record BlacklistHit(string Reason);
 | fork bomb | `:\(\)\s*\{\s*:\|:&\s*\}\s*;:` | fork bomb |
 | 写块设备 | `\bdd\b.*\bof=/dev/(?:sd[a-z]+\|nvme\d+n\d+\|disk\d+)` | 写块设备 |
 | 格式化 | `\bmkfs(?:\.\w+)?\s+/dev/` | 格式化块设备 |
+| **— Windows 危险命令 —** | | |
+| 递归删盘符根 | `\b(?:rd\|rmdir)\b\s+.*?/s\b.*?[A-Za-z]:\\(?:\s\|$)` | 递归删除盘符根 |
+| 递归删系统目录 | `\b(?:rd\|rmdir)\b\s+.*?/s\b.*?[A-Za-z]:\\(?:Windows\|Users\|Program Files\|...)` | 递归删除 Windows 系统目录 |
+| 删盘符根文件 | `\bdel\b\s+.*?/s\b.*?[A-Za-z]:\\\*?(?:\s\|$)` | 递归删除盘符根文件 |
+| 格式化磁盘 | `\bformat\b\s+(?:/\S+\s+)*[A-Za-z]:` | 格式化磁盘（format） |
+| 磁盘分区 | `\bdiskpart\b` | 磁盘分区工具 |
+| PowerShell 远程执行 | `\b(?:irm\|iwr\|curl\|wget)\b[^\|]*\|\s*(?:iex\|powershell\|cmd)\b` | 远程脚本执行（iex） |
+| cmd fork bomb | `%0\s*\|\s*%0` | fork bomb（cmd %0\|%0） |
+
+> **跨平台策略**：Unix + Windows 规则全部加载（不匹配的无害）。`run_command` 在 Windows 用 `cmd /c`、Unix 用 `sh -c`，LLM 在 Windows 上会输入 Windows 命令，黑名单必须覆盖。
 
 **匹配流程**：
 1. 仅对 `run_command` 工具适用（其他工具 `command` 为 null，直接返回 null）
@@ -232,6 +242,16 @@ Check(rawPath, level):
 | 08a-19 | 自定义 `extra_blacklist` 规则（如 `\bkubectl\s+delete\b`）命中 | 单测 |
 | 08a-20 | `command` 为 null（非 run_command 工具）返回 null | 单测 |
 | 08a-21 | `Reason` 字段非空，可用于回灌 | 单测 |
+| 08a-22w | `rd /s /q C:\` 命中"递归删除盘符根" | 单测 |
+| 08a-23w | `rd /s C:\Windows` / `rd /s C:\Users` 命中"递归删除 Windows 系统目录" | 单测 |
+| 08a-24w | `rd /s C:\Users\me\project` 子路径放行（不误拦） | 单测 |
+| 08a-25w | `del /s /q C:\*` 命中"递归删除盘符根文件" | 单测 |
+| 08a-26w | `del /s C:\Users\me\*.tmp` 子路径放行 | 单测 |
+| 08a-27w | `format C:` / `format /fs:ntfs C:` 命中"格式化磁盘" | 单测 |
+| 08a-28w | `diskpart` 命中"磁盘分区工具" | 单测 |
+| 08a-29w | `irm x \| iex` / `curl x \| powershell` 命中"远程脚本执行" | 单测 |
+| 08a-30w | `%0\|%0` 命中 fork bomb | 单测 |
+| 08a-31w | `dir /s` / `dotnet format` / `dotnet build` 不误拦 | 单测 |
 
 ### 4.4 PathSandbox
 

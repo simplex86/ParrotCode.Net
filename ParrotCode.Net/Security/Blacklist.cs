@@ -11,11 +11,17 @@ namespace ParrotCode;
 /// </summary>
 public sealed class Blacklist
 {
-    /// <summary>硬编码黑名单规则。Reason 会回灌给 LLM。</summary>
+    /// <summary>
+    /// 硬编码黑名单规则（跨平台：Unix + Windows 规则全部加载，不匹配的无害）。
+    /// Reason 会回灌给 LLM。
+    /// </summary>
     private static readonly BlacklistRule[] BuiltInRules =
     {
+        // ===== Unix 危险命令 =====
+
         // 递归删除根目录（rm -rf /，/ 后是空格或行尾）
-        new(new(@"\brm\s+-[a-zA-Z]*r[a-zA-Z]*f?\s+/(?:\s|$)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(new(@"\brm\s+-[a-zA-Z]*r[a-zA-Z]*f?\s+/(?:\s|$)", 
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
             "递归删除根目录（rm -rf /）"),
 
         // 递归删除系统关键目录（/boot /etc /usr /var /bin /sbin /root /home /tmp）
@@ -48,6 +54,47 @@ public sealed class Blacklist
         new(new(@"\bmkfs(?:\.\w+)?\s+/dev/",
                 RegexOptions.Compiled | RegexOptions.IgnoreCase),
             "格式化块设备（mkfs）"),
+
+        // ===== Windows 危险命令 =====
+
+        // 递归删除盘符根（rd /s /q C:\ / rmdir /s C:\）
+        // .*?/s 确保 /s 标志存在；盘符根后是空格或行尾
+        new(new(@"\b(?:rd|rmdir)\b\s+.*?/s\b.*?[A-Za-z]:\\(?:\s|$)",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            "递归删除盘符根（rd /s C:\\）"),
+
+        // 递归删除 Windows 系统目录（rd /s ... C:\Windows / C:\Users 等）
+        // 边界 (?:\s|$)：只匹配目录本身，不拦 C:\Users\me\project 等子路径
+        new(new(@"\b(?:rd|rmdir)\b\s+.*?/s\b.*?[A-Za-z]:\\(?:Windows|Users|Program Files|Program Files \(x86\)|ProgramData|System32)(?:\s|$)",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            "递归删除 Windows 系统目录"),
+
+        // 递归删除盘符根所有文件（del /s /q C:\*）
+        // 只拦盘符根 C:\* 或 C:\（末尾），不拦 C:\Users\me\*.tmp 等子路径
+        new(new(@"\bdel\b\s+.*?/s\b.*?[A-Za-z]:\\\*?(?:\s|$)",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            "递归删除盘符根文件（del /s C:\\*）"),
+
+        // 格式化磁盘（format C: / format /fs:ntfs C:）
+        // (?:/\S+\s+)* 允许可选的 /xxx 参数，后跟盘符
+        new(new(@"\bformat\b\s+(?:/\S+\s+)*[A-Za-z]:",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            "格式化磁盘（format）"),
+
+        // 磁盘分区工具（diskpart，几乎总是破坏性操作）
+        new(new(@"\bdiskpart\b",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            "磁盘分区工具（diskpart）"),
+
+        // PowerShell 远程脚本执行（irm|iwr|curl|wget | iex/Invoke-Expression/powershell/cmd）
+        new(new(@"\b(?:irm|iwr|Invoke-RestMethod|Invoke-WebRequest|curl|wget)\b[^|]*\|\s*(?:iex|Invoke-Expression|powershell|cmd)\b",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            "远程脚本执行（PowerShell iex）"),
+
+        // cmd fork bomb（%0|%0）
+        new(new(@"%0\s*\|\s*%0",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            "fork bomb（cmd %0|%0）"),
     };
 
     private readonly Regex[] _extraRules;

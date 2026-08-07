@@ -43,8 +43,8 @@ public sealed class WriteFileTool : ToolBase
             if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                 Directory.CreateDirectory(dir);
 
-            // UTF-8 无 BOM 写入（与源码文件惯例一致）
-            var bytes = Encoding.UTF8.GetBytes(content);
+            // UTF-8 无 BOM 写入（与源码文件惯例一致；显式 false 与 EditFileTool 统一）
+            var bytes = new UTF8Encoding(false).GetBytes(content);
             await using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 4096, useAsync: true);
             await fs.WriteAsync(bytes.AsMemory(0, bytes.Length), cancellationToken);
 

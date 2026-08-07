@@ -4,8 +4,10 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
 using ParrotCode;
 
-// 确保 stdout 用 UTF-8，让 LLM 返回的 emoji / CJK 字符在 Windows 终端正确显示
+// 确保 stdout/stdin 用 UTF-8，让 LLM 返回的 emoji / CJK 字符在 Windows 终端正确显示。
+// Unix 默认即 UTF-8，设置无副作用；Windows 控制台默认代码页非 UTF-8，需显式切换。
 Console.OutputEncoding = Encoding.UTF8;
+Console.InputEncoding = Encoding.UTF8;
 
 // Ctrl+C 触发取消令牌，由主循环优雅退出
 var cts = new CancellationTokenSource();

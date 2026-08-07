@@ -8,16 +8,24 @@ namespace ParrotCode;
 /// </summary>
 public sealed record SecurityContext
 {
-    /// <summary>项目根目录（白名单默认根），规范化绝对路径。</summary>
+    /// <summary>
+    /// 项目根目录（白名单默认根），规范化绝对路径。
+    /// </summary>
     public required string ProjectRoot { get; init; }
 
-    /// <summary>额外允许的路径白名单（规范化绝对路径）。</summary>
+    /// <summary>
+    /// 额外允许的路径白名单（规范化绝对路径）。
+    /// </summary>
     public IReadOnlyList<string> AllowPaths { get; init; } = Array.Empty<string>();
 
-    /// <summary>显式拒绝的路径黑名单（规范化绝对路径，优先级最高）。</summary>
+    /// <summary>
+    /// 显式拒绝的路径黑名单（规范化绝对路径，优先级最高）。
+    /// </summary>
     public IReadOnlyList<string> DenyPaths { get; init; } = Array.Empty<string>();
 
-    /// <summary>额外黑名单命令模式（正则字符串，与硬编码黑名单合并）。</summary>
+    /// <summary>
+    /// 额外黑名单命令模式（正则字符串，与硬编码黑名单合并）。
+    /// </summary>
     public IReadOnlyList<string> ExtraBlacklist { get; init; } = Array.Empty<string>();
 }
 
@@ -26,16 +34,24 @@ public sealed record SecurityContext
 /// </summary>
 internal enum PathCheckResultKind
 {
-    /// <summary>放行。</summary>
+    /// <summary>
+    /// 放行。
+    /// </summary>
     Allowed,
 
-    /// <summary>路径越界（跳出白名单根，Strict 模式）。</summary>
+    /// <summary>
+    /// 路径越界（跳出白名单根，Strict 模式）。
+    /// </summary>
     DeniedSandbox,
 
-    /// <summary>.. 遍历越界。</summary>
+    /// <summary>
+    /// .. 遍历越界。
+    /// </summary>
     DeniedTraversal,
 
-    /// <summary>命中 DenyPaths（显式拒绝）。</summary>
+    /// <summary>
+    /// 命中 DenyPaths（显式拒绝）。
+    /// </summary>
     DeniedExplicit
 }
 
