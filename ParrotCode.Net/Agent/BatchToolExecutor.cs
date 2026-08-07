@@ -13,6 +13,13 @@ namespace ParrotCode;
 /// - 构造加可选参数 IHitlGate? hitlGate = null（null 时等价 7a）。
 /// - Write 组执行前调 hitlGate.RequestAsync，Deny 时返回 ToolResult.Fail 不执行。
 /// - 预留 OnBeforeExecuteAsync 虚方法给迭代 8 SecurityGuard。
+///
+/// 8b 改造点（入口预扫描，回归风险核心）：
+/// - ExecuteAsync 入口对所有 calls 顺序调 OnBeforeExecuteAsync（安全层）。
+/// - 拒绝的填入 results 不进分组；放行的进 pending。
+/// - Read/Write 分组从 pending 而非 calls 全量；Read 组也过安全层。
+/// - Write 组执行阶段不再重复调 OnBeforeExecuteAsync（预扫描已覆盖），直接走 HITL → 执行。
+/// - 基类默认 OnBeforeExecuteAsync 返回 null，预扫描全放行，行为等价 7b（7b 测试不受影响）。
 /// </summary>
 public class BatchToolExecutor
 {
@@ -39,7 +46,8 @@ public class BatchToolExecutor
 
     /// <summary>
     /// 分批执行工具调用列表，返回与输入同序的结果列表。
-    /// 流程：按 Category 分组 → Read 并发（分批限流）→ Write 串行（含 HITL 询问）→ 按原序合并。
+    /// 流程：入口预扫描（所有 calls 过 OnBeforeExecuteAsync）→ 按 Category 分组（仅 pending）
+    ///       → Read 并发（分批限流，无 HITL）→ Write 串行（含 HITL 询问）→ 按原序合并。
     /// 任何工具失败不中断同批其他工具——失败原因作为 ToolResult.Fail 回灌给 LLM 自我修正。
     /// </summary>
     public async Task<IReadOnlyList<ToolResult>> ExecuteAsync(IReadOnlyList<ToolCall> calls, CancellationToken cancellationToken)
@@ -49,10 +57,34 @@ public class BatchToolExecutor
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        // 按 Category 分组，保留原始索引以便最后按原序合并
+        var results = new ToolResult[calls.Count];
+        var pending = new List<int>(calls.Count);
+
+        // 【迭代 8b 改造】入口预扫描：对所有 calls 调 OnBeforeExecuteAsync（安全层）。
+        // 拒绝的填入 results 不进入分组；放行的加入 pending。
+        // 基类默认 OnBeforeExecuteAsync 返回 null，预扫描全放行，行为等价 7b。
+        for (var i = 0; i < calls.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var blocked = await OnBeforeExecuteAsync(calls[i], cancellationToken);
+            if (blocked is not null)
+            {
+                results[i] = blocked;
+                _logger?.LogInformation("工具 {Name} 被安全层拦截", calls[i].Name);
+            }
+            else
+            {
+                pending.Add(i);
+            }
+        }
+
+        if (pending.Count == 0)
+            return results;
+
+        // 按 Category 分组（只对 pending，保留原始索引以便最后按原序合并）
         var readIndices = new List<int>();
         var writeIndices = new List<int>();
-        for (var i = 0; i < calls.Count; i++)
+        foreach (var i in pending)
         {
             var tool = _registry.Get(calls[i].Name);
             if (tool is null || tool.Category != ToolCategory.Read)
@@ -66,9 +98,7 @@ public class BatchToolExecutor
             }
         }
 
-        var results = new ToolResult[calls.Count];
-
-        // Read 组并发（分批限流）——幂等无副作用，不问 HITL（与 7a 一致）
+        // Read 组并发（分批限流）——无 HITL（安全层已在预扫描跑过）
         foreach (var batch in readIndices.Chunk(_maxParallelism))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -80,22 +110,13 @@ public class BatchToolExecutor
             }
         }
 
-        // Write 组串行 + HITL（7b 新增）
+        // Write 组串行 + HITL（迭代 8b：OnBeforeExecuteAsync 已在预扫描跑过，此处不再调）
         foreach (var i in writeIndices)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var call = calls[i];
 
-            // 1. OnBeforeExecuteAsync hook（迭代 8 SecurityGuard 接入点，7b 默认返回 null）
-            var blocked = await OnBeforeExecuteAsync(call, cancellationToken);
-            if (blocked is not null)
-            {
-                results[i] = blocked;
-                _logger?.LogInformation("工具 {Name} 被安全层拦截", call.Name);
-                continue;
-            }
-
-            // 2. HITL 请求（7b 新增，hitlGate 非 null 时）
+            // HITL 请求（hitlGate 非 null 时）
             if (_hitlGate is not null)
             {
                 var decision = await _hitlGate.RequestAsync(call, cancellationToken);
@@ -109,7 +130,7 @@ public class BatchToolExecutor
                 }
             }
 
-            // 3. 执行工具
+            // 执行工具
             results[i] = await _executor.ExecuteAsync(call, cancellationToken);
         }
 
@@ -121,6 +142,7 @@ public class BatchToolExecutor
     /// 7b 默认实现返回 null（不拦截）。预留虚方法供迭代 8 子类化或委托。
     /// 顺序：OnBeforeExecuteAsync（安全层）→ HITL（用户决策）→ 执行。
     /// 安全层拒绝时不问用户（避免打扰已拦截的操作）。
+    /// 8b 改造：此方法在入口预扫描阶段对每个 call 调一次（含 Read 组）；Write 组执行阶段不再调。
     /// </summary>
     protected virtual Task<ToolResult?> OnBeforeExecuteAsync(ToolCall call, CancellationToken ct) =>
         Task.FromResult<ToolResult?>(null);
