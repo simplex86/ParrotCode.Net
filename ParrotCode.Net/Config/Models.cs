@@ -44,6 +44,11 @@ public sealed record AppConfig
     /// 安全配置（7b 占位，迭代 8 接入真实拦截）。null 时默认 Normal。
     /// </summary>
     public SecurityConfig? Security { get; init; }
+
+    /// <summary>
+    /// 上下文管理配置（迭代 9 新增）。null 时用默认值。
+    /// </summary>
+    public ContextConfig? Context { get; init; }
 }
 
 /// <summary>
@@ -130,4 +135,37 @@ public sealed record SecurityConfig
     /// 额外黑名单命令正则模式（与硬编码黑名单合并）。YAML 中反斜杠需转义（如 \\b）。
     /// </summary>
     public IList<string> ExtraBlacklist { get; init; } = Array.Empty<string>();
+}
+
+/// <summary>
+/// 上下文管理配置（迭代 9 新增）。null 时用默认值。
+/// </summary>
+public sealed record ContextConfig
+{
+    /// <summary>上下文窗口 token 数。null 时回退 TuiConfig.ContextWindowTokens ?? 64000。</summary>
+    public int? ContextWindowTokens { get; init; }
+
+    /// <summary>警告阈值（占窗口比例）。默认 0.7。</summary>
+    public double? WarningFraction { get; init; }
+
+    /// <summary>触发摘要阈值（占窗口比例）。默认 0.9。</summary>
+    public double? TriggerFraction { get; init; }
+
+    /// <summary>单条工具结果截断阈值（字符数）。默认 50_000。</summary>
+    public int? PerResultThreshold { get; init; }
+
+    /// <summary>一轮内工具结果合计截断阈值（字符数）。默认 200_000。</summary>
+    public int? RoundTotalThreshold { get; init; }
+
+    /// <summary>截断后保留预览长度（字符数）。默认 2_000。</summary>
+    public int? PreviewLength { get; init; }
+
+    /// <summary>摘要时保留的最近消息数。默认 4。</summary>
+    public int? KeepRecentMessages { get; init; }
+
+    /// <summary>熔断器最大连续失败次数。默认 2。</summary>
+    public int? MaxCircuitFailures { get; init; }
+
+    /// <summary>是否启用自动压缩。默认 true。false 时仅截断不摘要。</summary>
+    public bool? EnableAutoCompress { get; init; }
 }

@@ -50,12 +50,36 @@ internal sealed class App
         // 保证黑名单层至少生效（防 rm -rf /）
         var securityGuard = new SecurityGuard(secCtx, securityLevel, _logger);
 
+        // 【迭代 9】构造 ContextCompressor（上下文管理：层 1 截断 + 层 2 摘要）
+        // 始终创建——层 1 截断始终生效；enable_auto_compress: false 仅禁用层 2 摘要
+        var contextConfig = _config.Context ?? new ContextConfig();
+        var contextWindow = contextConfig.ContextWindowTokens
+                            ?? tuiConfig.ContextWindowTokens
+                            ?? 64000;
+        var truncateConfig = new TruncateConfig
+        {
+            PerResultThreshold = contextConfig.PerResultThreshold ?? 50_000,
+            RoundTotalThreshold = contextConfig.RoundTotalThreshold ?? 200_000,
+            PreviewLength = contextConfig.PreviewLength ?? 2_000,
+        };
+        var compressor = new ContextCompressor(
+            _provider, contextWindow,
+            truncateConfig,
+            contextConfig.WarningFraction ?? 0.7,
+            contextConfig.TriggerFraction ?? 0.9,
+            contextConfig.KeepRecentMessages ?? 4,
+            contextConfig.MaxCircuitFailures ?? 2,
+            enableAutoCompress: contextConfig.EnableAutoCompress ?? true,
+            projectRoot: projectRoot,
+            _logger);
+
         using var terminalApp = new TerminalApp(_provider,
                                                 _providerConfig,
                                                 _config.Agent,
                                                 tuiConfig,
                                                 securityLevel,
                                                 securityGuard,
+                                                compressor,
                                                 _logger,
                                                 _ct);
         await terminalApp.RunAsync();

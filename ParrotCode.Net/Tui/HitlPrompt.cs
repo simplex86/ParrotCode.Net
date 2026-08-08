@@ -52,6 +52,5 @@ public sealed class HitlPrompt : IHitlGate
         return decision;
     }
 
-    public bool IsAllowedThisSession(string toolName) =>
-        _sessionCache.ContainsKey(toolName);
+    public bool IsAllowedThisSession(string toolName) => _sessionCache.ContainsKey(toolName);
 }

@@ -68,4 +68,22 @@ public abstract record AgentEvent
     /// 用户取消（Ctrl+C）。Agent 优雅停止。
     /// </summary>
     public sealed record CancelledEvent : AgentEvent;
+
+    /// <summary>
+    /// 工具结果被截断（迭代 9 层 1）。
+    /// 单条工具结果超过阈值时写盘留预览，此事件通知 UI 展示截断指示。
+    /// </summary>
+    public sealed record TruncationEvent(string ToolName, int OriginalChars, string? FilePath) : AgentEvent;
+
+    /// <summary>
+    /// 上下文警告（迭代 9 层 2）。
+    /// token 超过警告阈值或熔断器打开时触发。
+    /// </summary>
+    public sealed record ContextWarningEvent(string Message) : AgentEvent;
+
+    /// <summary>
+    /// 上下文已压缩（迭代 9 层 2）。
+    /// 摘要完成后触发，通知 UI 展示压缩结果。
+    /// </summary>
+    public sealed record ContextCompressedEvent(int MessagesCompressed, int EstimatedTokensSaved) : AgentEvent;
 }

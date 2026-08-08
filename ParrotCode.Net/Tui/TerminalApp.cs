@@ -18,6 +18,7 @@ internal sealed class TerminalApp : IDisposable
     private readonly TuiConfig _tuiConfig;
     private readonly SecurityLevel _securityLevel;
     private readonly SecurityGuard _securityGuard;  // 8c 新增：跨轮保留
+    private readonly ContextCompressor _compressor;  // 迭代 9 新增
     private readonly ILogger? _logger;
     private readonly CancellationToken _ct;
 
@@ -43,6 +44,7 @@ internal sealed class TerminalApp : IDisposable
                        TuiConfig? tuiConfig,
                        SecurityLevel securityLevel,
                        SecurityGuard securityGuard,  // 8c 新增
+                       ContextCompressor compressor,  // 迭代 9 新增
                        ILogger? logger,
                        CancellationToken ct)
     {
@@ -52,6 +54,7 @@ internal sealed class TerminalApp : IDisposable
         _tuiConfig = tuiConfig ?? new TuiConfig();
         _securityLevel = securityLevel;
         _securityGuard = securityGuard ?? throw new ArgumentNullException(nameof(securityGuard));
+        _compressor = compressor ?? throw new ArgumentNullException(nameof(compressor));
         _logger = logger;
         _ct = ct;
     }
@@ -299,10 +302,12 @@ internal sealed class TerminalApp : IDisposable
         // 8c：装配 SecureBatchToolExecutor（注入 SecurityGuard）
         // 同步当前档位（_securityLevel 当前是构造时固定；为迭代 10 /mode 运行时切换预留）
         _securityGuard.Level = _securityLevel;
-        var batchExecutor = new SecureBatchToolExecutor(executor, _registry!, _securityGuard,
-                                                         _agentConfig.MaxParallelism ?? 5,
-                                                         hitlGate: hitlGate,
-                                                         _logger);
+        var batchExecutor = new SecureBatchToolExecutor(executor, 
+                                                        _registry!, 
+                                                        _securityGuard,
+                                                        _agentConfig.MaxParallelism ?? 5,
+                                                        hitlGate: hitlGate,
+                                                        _logger);
 
         _sink = new ChannelEventSink();
         var agentLoop = new AgentLoop(_provider,
@@ -311,6 +316,7 @@ internal sealed class TerminalApp : IDisposable
                                       _agentConfig.MaxRounds ?? 10,
                                       _agentConfig.ToolChoice ?? "auto",
                                       _agentConfig.SystemPrompt,
+                                      compressor: _compressor,  // 迭代 9 新增
                                       logger: null);  // 不给 logger，避免 stderr 交错
 
         _agentTask = agentLoop.RunAsync(_history!, _sink, _ct);
@@ -333,6 +339,26 @@ internal sealed class TerminalApp : IDisposable
             _spinner?.Start();
         else if (evt is AgentEvent.ToolResultEvent or AgentEvent.ToolBlockedEvent)
             _spinner?.Stop();
+
+        // 迭代 9：压缩相关事件
+        if (evt is AgentEvent.TruncationEvent(var toolName, var origChars, var filePath))
+        {
+            var location = filePath is not null ? $"完整内容已保存到 {filePath}"
+                                                : "写盘失败，未保存完整内容";
+            _chatView!.AppendStaticMessage($"[截断] {toolName} 结果过大（{origChars} 字符），{location}");
+        }
+        else if (evt is AgentEvent.ContextWarningEvent(var msg))
+        {
+            _chatView!.AppendStaticMessage($"[!] {msg}");
+            if (msg.Contains("自动压缩已禁用"))
+                _statusBarView!.CircuitOpen = true;
+        }
+        else if (evt is AgentEvent.ContextCompressedEvent(var compressed, var saved))
+        {
+            _chatView!.AppendStaticMessage($"[压缩] 已压缩 {compressed} 条消息，节省约 {saved} tokens");
+            _statusBarView!.EstimatedTokens = _history!.EstimatedTokens;
+            _statusBarView!.Compressed = true;
+        }
     }
 
     /// <summary>

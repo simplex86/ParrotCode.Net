@@ -245,4 +245,86 @@ public class ConversationHistoryTests
 
         act.Should().Throw<ArgumentNullException>();
     }
+
+    // ---- AddSystem（迭代 9 新增）----
+
+    [Fact]
+    public void AddSystem_StoresSystemMessage()
+    {
+        var history = new ConversationHistory();
+
+        history.AddSystem("摘要内容");
+
+        history.Count.Should().Be(1);
+        var msg = history.ToProviderMessages()[0];
+        msg.Role.Should().Be(MessageRole.System);
+        msg.Content.Should().Be("摘要内容");
+    }
+
+    [Fact]
+    public void AddSystem_NullContent_ThrowsArgumentNullException()
+    {
+        var history = new ConversationHistory();
+
+        var act = () => history.AddSystem(null!);
+
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    // ---- ReplaceMessages（迭代 9 新增）----
+
+    [Fact]
+    public void ReplaceMessages_ReplacesAllMessages()
+    {
+        var history = new ConversationHistory();
+        history.AddUser("旧消息1");
+        history.AddAssistant("旧消息2");
+
+        var newMessages = new List<Message>
+        {
+            new(MessageRole.System, "摘要"),
+            new(MessageRole.User, "保留的消息")
+        };
+        history.ReplaceMessages(newMessages);
+
+        history.Count.Should().Be(2);
+        var msgs = history.ToProviderMessages();
+        msgs[0].Role.Should().Be(MessageRole.System);
+        msgs[0].Content.Should().Be("摘要");
+        msgs[1].Role.Should().Be(MessageRole.User);
+        msgs[1].Content.Should().Be("保留的消息");
+    }
+
+    [Fact]
+    public void ReplaceMessages_NullArgument_ThrowsArgumentNullException()
+    {
+        var history = new ConversationHistory();
+
+        var act = () => history.ReplaceMessages(null!);
+
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void ReplaceMessages_EmptyList_ClearsHistory()
+    {
+        var history = new ConversationHistory();
+        history.AddUser("old");
+
+        history.ReplaceMessages(Array.Empty<Message>());
+
+        history.Count.Should().Be(0);
+    }
+
+    [Fact]
+    public void ReplaceMessages_EstimatedTokens_ReflectsNewMessages()
+    {
+        var history = new ConversationHistory();
+        history.AddUser(new string('a', 300));  // ceil(300/3) = 100 tokens
+        history.EstimatedTokens.Should().Be(100);
+
+        history.ReplaceMessages(new[] { new Message(MessageRole.System, "short") });  // ceil(5/3) = 2 tokens
+
+        history.EstimatedTokens.Should().Be(2);
+    }
 }

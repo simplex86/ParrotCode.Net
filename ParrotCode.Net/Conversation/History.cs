@@ -73,6 +73,26 @@ public sealed class ConversationHistory
     }
 
     /// <summary>
+    /// 追加 system 消息（迭代 9 新增：压缩摘要/边界提示用）。
+    /// </summary>
+    public void AddSystem(string content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        _messages.Add(new Message(MessageRole.System, content));
+    }
+
+    /// <summary>
+    /// 替换全部消息（迭代 9 新增：压缩后用）。
+    /// 供 StructuredSummarizer.SummarizeAsync 调用。
+    /// </summary>
+    public void ReplaceMessages(IReadOnlyList<Message> messages)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        _messages.Clear();
+        _messages.AddRange(messages);
+    }
+
+    /// <summary>
     /// 返回当前历史的快照，供 Provider 调用使用。
     /// 返回数组快照而非 live view——避免异步 Provider 调用期间历史被修改导致不一致。
     /// </summary>

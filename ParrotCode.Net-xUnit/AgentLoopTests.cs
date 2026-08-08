@@ -220,4 +220,105 @@ public class AgentLoopTests
         textDeltas[0].Text.Should().Be("done");
         events.Should().Contain(e => e is AgentEvent.AgentDoneEvent);
     }
+
+    // ---- 迭代 9：上下文管理集成测试 ----
+
+    /// <summary>返回大结果的工具（用于截断测试）。</summary>
+    private sealed class BigResultTool : ToolBase
+    {
+        private readonly string _content;
+        public override string Name => "big";
+        public override string Description => "returns a large result";
+        public override ToolCategory Category => ToolCategory.Read;
+        public override IReadOnlyList<ToolParameter> Parameters => Array.Empty<ToolParameter>();
+        public BigResultTool(string content) => _content = content;
+        public override Task<ToolResult> ExecuteAsync(JsonElement input, CancellationToken ct)
+            => Task.FromResult(ToolResult.Ok(_content));
+    }
+
+    private static ContextCompressor CreateCompressor(IBaseProvider provider, int contextWindow = 10000)
+    {
+        return new ContextCompressor(
+            provider, contextWindow,
+            truncateConfig: new TruncateConfig
+            {
+                PerResultThreshold = 100,
+                RoundTotalThreshold = 10000,
+                PreviewLength = 10
+            },
+            projectRoot: Path.GetTempPath());
+    }
+
+    [Fact]
+    public async Task RunAsync_CompressorNull_NoTruncation()
+    {
+        // compressor=null → 行为与迭代 8 完全一致
+        var provider = new MockProvider();
+        var registry = new ToolRegistry();
+        var bigContent = new string('x', 500);
+        registry.Register(new BigResultTool(bigContent));
+        var executor = new ToolExecutor(registry, TimeSpan.FromSeconds(5));
+        var batch = new BatchToolExecutor(executor, registry);
+        var loop = new AgentLoop(provider, registry, batch, maxRounds: 10, compressor: null);
+        var sink = new ChannelEventSink();
+
+        provider.EnqueueScript(ToolCallScript("call_1", "big", "{}"));
+        provider.EnqueueScript(TextScript("done"));
+        var history = new ConversationHistory();
+        history.AddUser("hi");
+
+        var events = await CollectEventsAsync(sink, loop.RunAsync(history, sink, CancellationToken.None));
+
+        // 无截断事件
+        events.Should().NotContain(e => e is AgentEvent.TruncationEvent);
+        // 历史中存原始内容
+        var toolMsg = history.ToProviderMessages().First(m => m.Role == MessageRole.Tool);
+        toolMsg.Content.Should().Be(bigContent);
+    }
+
+    [Fact]
+    public async Task RunAsync_CompressorTruncates_TruncationEventEmitted()
+    {
+        var provider = new MockProvider();
+        var registry = new ToolRegistry();
+        var bigContent = new string('x', 500);  // > 100 threshold
+        registry.Register(new BigResultTool(bigContent));
+        var executor = new ToolExecutor(registry, TimeSpan.FromSeconds(5));
+        var batch = new BatchToolExecutor(executor, registry);
+        var compressor = CreateCompressor(provider);
+        var loop = new AgentLoop(provider, registry, batch, maxRounds: 10, compressor: compressor);
+        var sink = new ChannelEventSink();
+
+        provider.EnqueueScript(ToolCallScript("call_1", "big", "{}"));
+        provider.EnqueueScript(TextScript("done"));
+        var history = new ConversationHistory();
+        history.AddUser("hi");
+
+        var events = await CollectEventsAsync(sink, loop.RunAsync(history, sink, CancellationToken.None));
+
+        // 有截断事件
+        var truncEvent = events.OfType<AgentEvent.TruncationEvent>().SingleOrDefault();
+        truncEvent.Should().NotBeNull();
+        truncEvent!.ToolName.Should().Be("big");
+        truncEvent.OriginalChars.Should().Be(500);
+
+        // 历史中存截断后内容（含预览提示）
+        var toolMsg = history.ToProviderMessages().First(m => m.Role == MessageRole.Tool);
+        toolMsg.Content.Should().Contain("[工具结果过大");
+        toolMsg.Content.Length.Should().BeLessThan(bigContent.Length);
+    }
+
+    [Fact]
+    public async Task RunAsync_CompressorNull_NoCompressionEvents()
+    {
+        var (loop, provider, sink) = CreateLoop();
+        provider.EnqueueScript(TextScript("hello"));
+        var history = new ConversationHistory();
+        history.AddUser("hi");
+
+        var events = await CollectEventsAsync(sink, loop.RunAsync(history, sink, CancellationToken.None));
+
+        events.Should().NotContain(e => e is AgentEvent.ContextWarningEvent);
+        events.Should().NotContain(e => e is AgentEvent.ContextCompressedEvent);
+    }
 }

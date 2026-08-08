@@ -57,3 +57,15 @@ security:
   # extra_blacklist:       # 额外黑名单命令正则（与硬编码黑名单合并；YAML 中反斜杠需转义 \\b）
   #   - "\\bkubectl\\s+delete\\b"
   #   - "\\bdocker\\s+rm\\s+-f"
+
+# 迭代 9 新增：上下文管理配置（全部可选，省略时用默认值）
+context:
+  context_window_tokens: 64000    # 上下文窗口大小（省略时回退 tui.context_window_tokens）
+  warning_fraction: 0.7           # token 占比超过此值发警告
+  trigger_fraction: 0.9           # token 占比超过此值触发摘要
+  per_result_threshold: 50000     # 单条工具结果截断阈值（字符数）
+  round_total_threshold: 200000   # 一轮内工具结果合计截断阈值（字符数）
+  preview_length: 2000            # 截断后保留预览长度（字符数）
+  keep_recent_messages: 4         # 摘要时保留的最近消息数
+  max_circuit_failures: 2         # 熔断器最大连续失败次数
+  enable_auto_compress: true      # 是否启用自动压缩（false 时仅截断不摘要）

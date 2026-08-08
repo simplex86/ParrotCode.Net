@@ -19,6 +19,7 @@ internal sealed class AgentLoop
     private readonly int _maxRounds;
     private readonly string _toolChoice;
     private readonly string _systemPrompt;
+    private readonly ContextCompressor? _compressor;  // 迭代 9 新增（null = 不做上下文管理，测试用）
     private readonly ILogger? _logger;
 
     public AgentLoop(IBaseProvider provider,
@@ -27,6 +28,7 @@ internal sealed class AgentLoop
                      int maxRounds = 10,
                      string toolChoice = "auto",
                      string? systemPrompt = null,
+                     ContextCompressor? compressor = null,
                      ILogger? logger = null)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
@@ -36,6 +38,7 @@ internal sealed class AgentLoop
         _maxRounds = maxRounds;
         _toolChoice = toolChoice;
         _systemPrompt = systemPrompt ?? DefaultSystemPrompt;
+        _compressor = compressor;
         _logger = logger;
     }
 
@@ -80,6 +83,17 @@ internal sealed class AgentLoop
         {
             cancellationToken.ThrowIfCancellationRequested();
             await sink.WriteAsync(new AgentEvent.RoundStartEvent(round), cancellationToken);
+
+            // 迭代 9：层 2 压缩检查（每轮 LLM 调用前）
+            if (_compressor is not null)
+            {
+                var compression = await _compressor.CheckAndCompressAsync(history, cancellationToken);
+                if (compression.WarningIssued && compression.WarningMessage is not null)
+                    await sink.WriteAsync(new AgentEvent.ContextWarningEvent(compression.WarningMessage), cancellationToken);
+                if (compression.WasCompressed)
+                    await sink.WriteAsync(new AgentEvent.ContextCompressedEvent(
+                        compression.MessagesCompressed, compression.EstimatedTokensSaved), cancellationToken);
+            }
 
             // 构造消息：system prompt + 历史快照
             var messages = BuildMessagesWithSystem(history);
@@ -138,10 +152,31 @@ internal sealed class AgentLoop
 
             var results = await _batchExecutor.ExecuteAsync(toolCalls, cancellationToken);
 
+            // 迭代 9：层 1 截断（入历史前）
+            string[] truncatedContents;
+            IReadOnlyList<TruncationInfo> truncInfos = Array.Empty<TruncationInfo>();
+            if (_compressor is not null)
+            {
+                var (tc, ti) = _compressor.TruncateBatch(
+                    results.Select(r => r.Success ? r.Content : string.Empty).ToArray(),
+                    toolCalls.Select(c => c.Name).ToArray());
+                truncatedContents = tc;
+                truncInfos = ti;
+            }
+            else
+            {
+                truncatedContents = results.Select(r => r.Content).ToArray();
+            }
+
             for (var i = 0; i < toolCalls.Count; i++)
             {
                 var call = toolCalls[i];
                 var result = results[i];
+
+                // 迭代 9：截断事件（如果有）
+                if (truncInfos.FirstOrDefault(t => t.Index == i) is { } truncInfo)
+                    await sink.WriteAsync(new AgentEvent.TruncationEvent(
+                        truncInfo.ToolName, truncInfo.OriginalChars, truncInfo.FilePath), cancellationToken);
 
                 // 7b 新增：HITL/安全层拒绝 → emit ToolBlockedEvent；否则 ToolResultEvent
                 // 启发式：拒绝原因含"用户拒绝"或"被拦截"标记为 blocked。
@@ -154,8 +189,11 @@ internal sealed class AgentLoop
                     await sink.WriteAsync(new AgentEvent.ToolResultEvent(call, result), cancellationToken);
                 }
 
-                // 失败原因（含 HITL 拒绝）回灌历史，让 LLM 自我修正
-                history.AddTool(result.Success ? result.Content : $"错误：{result.Error}", call.Id);
+                // 迭代 9：入历史的是截断后内容
+                var contentToStore = result.Success
+                    ? truncatedContents[i]
+                    : $"错误：{result.Error}";
+                history.AddTool(contentToStore, call.Id);
             }
 
             await sink.WriteAsync(new AgentEvent.RoundEndEvent(round), cancellationToken);
