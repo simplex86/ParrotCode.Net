@@ -46,6 +46,14 @@ tui:
   context_window_tokens: 64000   # 状态栏上下文占比分母
   enable_hitl: true       # 7b 新增：是否启用 HITL（人在回路），默认 true。false 时所有工具直接执行
 
-# 迭代 7b 占位（迭代 8 接入真实拦截）
+# 迭代 8 接入真实拦截：黑名单（始终生效）+ 路径沙箱（按档位收紧）+ 策略（默认放行）
 security:
-  level: normal           # strict | normal | permissive（7b 仅状态栏显示，不拦截）
+  level: normal           # strict | normal | permissive（大小写不敏感；兼容旧拼法 permisive）
+  # allow_paths:           # Strict 模式下额外的白名单根（项目根默认已白名单）
+  #   - d:/projects/shared-libs
+  #   - ../sibling-project
+  # deny_paths:            # 显式拒绝的路径（所有非 Permissive 档位生效，最高优先级）
+  #   - d:/secrets
+  # extra_blacklist:       # 额外黑名单命令正则（与硬编码黑名单合并；YAML 中反斜杠需转义 \\b）
+  #   - "\\bkubectl\\s+delete\\b"
+  #   - "\\bdocker\\s+rm\\s+-f"

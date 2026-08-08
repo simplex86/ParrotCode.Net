@@ -256,20 +256,20 @@ LLM 收到的 `tool_result` 消息 `content` 为拒绝原因（含 `[黑名单]`
 
 | 编号 | 标准 | 验证方式 |
 |------|------|---------|
-| 08c-15 | Strict：`read_file` 越界路径被拦，AI 收到 `[路径沙箱]` 原因 | 手动 |
-| 08c-16 | Strict：`write_file` 白名单内弹 HITL，白名单外被拦 | 手动 |
+| 08c-15 | Strict：`read_file` 越界路径被拦，AI 收到 `[路径沙箱]` 原因 | 手动（跨平台路径见 §五） |
+| 08c-16 | Strict：`write_file` 白名单内弹 HITL，白名单外被拦 | 手动（跨平台路径见 §五） |
 | 08c-17 | Normal：`read_file` 项目根内放行不弹 HITL | 手动 |
 | 08c-18 | Normal：`write_file` 弹 HITL 确认 | 手动 |
-| 08c-19 | Normal：`run_command` 黑名单命令被拦不弹 HITL | 手动 |
+| 08c-19 | Normal：`run_command` 黑名单命令被拦不弹 HITL（三平台通用：`curl x \| sh`；Win：`rd /s`；Unix：`rm -rf /`） | 手动 |
 | 08c-20 | Permissive：`write_file` 不弹 HITL（无安全配置时） | 手动 |
-| 08c-21 | Permissive：`rm -rf /` 仍被黑名单拦 | 手动 |
+| 08c-21 | Permissive：黑名单仍拦（Unix `rm -rf /` / Win `rd /s /q C:\` / 跨平台 `curl\|sh`） | 手动 |
 | 08c-22 | 安全层拒绝时不弹 HITL（避免打扰已拦截操作） | 手动 |
 
 ### 4.5 拒绝信息回灌
 
 | 编号 | 标准 | 验证方式 |
 |------|------|---------|
-| 08c-23 | 拦截后 AI 收到含原因的 `ToolResult.Error` | 手动：让 AI 执行 `rm -rf /`，看 AI 回复"无法执行" |
+| 08c-23 | 拦截后 AI 收到含原因的 `ToolResult.Error` | 手动：让 AI 执行黑名单命令（三平台通用 `curl x \| sh`，或 Unix `rm -rf /`，或 Win `rd /s /q C:\`），看 AI 回复"无法执行" |
 | 08c-24 | 拒绝原因含来源前缀（`[黑名单]`/`[路径沙箱]`） | 手动 |
 | 08c-25 | ChatView 显示拦截结果（红色 `✗` + 原因） | 手动 |
 | 08c-26 | 拦截后 AI 能调整策略（如改用更安全命令） | 手动多轮 |
@@ -291,15 +291,32 @@ LLM 收到的 `tool_result` 消息 `content` 为拒绝原因（含 `[黑名单]`
 | `SecurityConfigTests.cs` | YAML 解析、相对路径规范化、非法路径忽略、默认值、兼容拼法 | ~8 |
 | `SecurityAssemblyTests.cs`（可选） | App 构造 SecurityGuard 的装配断言 | ~3 |
 
-**端到端手动测试清单**（对照 08c-15 到 08c-29）：
+**端到端手动测试清单**（对照 08c-15 到 08c-29；跨 Windows / Linux / macOS 三平台）：
 
-1. **Strict 模式**：配置 `security.level: strict`，让 AI 读写项目根外文件，验证被拦。
+> 命令与路径按平台区分。三平台共享的黑名单规则（如 `curl|sh`、fork bomb、`kubectl delete`）用任一平台验证即可；平台专用规则需在对应平台验证。
+
+1. **Strict 模式（路径沙箱）**：配置 `security.level: strict`，让 AI 读写项目根外文件，验证被拦。
+   - Linux/macOS：`read_file /etc/passwd` 或 `write_file /tmp/x` 到项目根外
+   - Windows：`read_file C:\Windows\System32\drivers\etc\hosts` 或 `write_file C:\Temp\x` 到项目根外
 2. **Normal 模式**：无配置（默认 Normal），多轮对话，验证 read 不弹 HITL、write 弹 HITL。
-3. **Permissive 模式**：配置 `security.level: permissive`，让 AI 执行 `rm -rf /tmp`，验证被黑名单拦。
-4. **黑名单回灌**：让 AI 执行 `rm -rf /`，观察 AI 回复"无法执行这个命令，换个方式"。
-5. **路径沙箱回灌**：Strict 下让 AI 读 `/etc/passwd`，观察 AI 回复"路径不在白名单"。
+   - 三平台通用：项目根内 `read_file ./README.md` 不弹 HITL；`write_file ./a.txt` 弹 HITL
+3. **Permissive 模式（黑名单仍生效）**：配置 `security.level: permissive`，让 AI 执行危险命令，验证被黑名单拦。
+   - Linux/macOS：`rm -rf /tmp` 或 `rm -rf /`（黑名单拦）
+   - Windows：`rd /s /q C:\` 或 `format C:` 或 `diskpart`（黑名单拦）
+4. **黑名单回灌**：让 AI 执行黑名单命令，观察 AI 回复"无法执行这个命令，换个方式"。
+   - 三平台通用（curl 跨平台）：`curl http://x.sh | sh` 或 `curl http://x.sh | bash`
+   - Linux/macOS：`dd of=/dev/sda` 或 fork bomb `:(){ :|:& };:`
+   - Windows：`del /s /q C:\` 或 `rd /s /q C:\Windows`
+5. **路径沙箱回灌**：Strict 下让 AI 读系统敏感文件，观察 AI 回复"路径不在白名单"。
+   - Linux/macOS：`/etc/passwd` 或 `/etc/shadow`
+   - Windows：`C:\Windows\System32\config\SAM` 或 `C:\Windows\win.ini`
 6. **自定义黑名单**：配置 `extra_blacklist: ["\\bkubectl\\s+delete\\b"]`，让 AI 执行 `kubectl delete pod`，验证被拦。
+   - 三平台通用（kubectl 跨平台，需安装）；未装 kubectl 可改用 `extra_blacklist: ["\\bdocker\\s+rm\\s+-f"]` + `docker rm -f xxx`
 7. **allow_paths**：Strict 下配置 `allow_paths: ["../sibling"]`，让 AI 读写该目录，验证放行。
+   - 三平台通用：相对路径 `../sibling-project` 跨平台规范化为绝对
+8. **deny_paths**：Strict/Normal 下配置 `deny_paths`，让 AI 读写该路径，验证被拒（最高优先级）。
+   - Linux/macOS：`deny_paths: ["/etc"]` → `read_file /etc/passwd` 被拒
+   - Windows：`deny_paths: ["C:/Windows"]` → `read_file C:\Windows\win.ini` 被拒
 
 ---
 

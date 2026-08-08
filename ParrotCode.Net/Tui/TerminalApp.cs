@@ -8,6 +8,7 @@ namespace ParrotCode;
 /// Terminal.Gui v2 主应用（迭代 7c-3：HITL 模态对话框 + Spinner + 收尾）。
 /// 装配三段式布局：顶部状态栏 + 中间对话区 + 底部输入框。
 /// 7c-3：enable_hitl=true 时注入 HitlPrompt（模态 Dialog），工具执行时显示 Spinner。
+/// 8c：注入 SecurityGuard，StartAgentRound 装配 SecureBatchToolExecutor（黑名单 + 沙箱 + 策略）。
 /// </summary>
 internal sealed class TerminalApp : IDisposable
 {
@@ -16,6 +17,7 @@ internal sealed class TerminalApp : IDisposable
     private readonly AgentConfig _agentConfig;
     private readonly TuiConfig _tuiConfig;
     private readonly SecurityLevel _securityLevel;
+    private readonly SecurityGuard _securityGuard;  // 8c 新增：跨轮保留
     private readonly ILogger? _logger;
     private readonly CancellationToken _ct;
 
@@ -40,6 +42,7 @@ internal sealed class TerminalApp : IDisposable
                        AgentConfig? agentConfig,
                        TuiConfig? tuiConfig,
                        SecurityLevel securityLevel,
+                       SecurityGuard securityGuard,  // 8c 新增
                        ILogger? logger,
                        CancellationToken ct)
     {
@@ -48,6 +51,7 @@ internal sealed class TerminalApp : IDisposable
         _agentConfig = agentConfig ?? new AgentConfig();
         _tuiConfig = tuiConfig ?? new TuiConfig();
         _securityLevel = securityLevel;
+        _securityGuard = securityGuard ?? throw new ArgumentNullException(nameof(securityGuard));
         _logger = logger;
         _ct = ct;
     }
@@ -283,6 +287,7 @@ internal sealed class TerminalApp : IDisposable
 
     /// <summary>
     /// 启动一轮 AgentLoop，事件流通过 IdleCallback 消费。
+    /// 8c：装配 SecureBatchToolExecutor（注入 SecurityGuard），安全层先于 HITL。
     /// </summary>
     private void StartAgentRound()
     {
@@ -291,10 +296,13 @@ internal sealed class TerminalApp : IDisposable
         // 7c-3：注入 HitlPrompt（如果启用），否则 NullHitlGate
         IHitlGate? hitlGate = _hitlPrompt is null ? new NullHitlGate() : (IHitlGate)_hitlPrompt;
 
-        var batchExecutor = new BatchToolExecutor(executor, _registry!,
-                                                   _agentConfig.MaxParallelism ?? 5,
-                                                   hitlGate: hitlGate,
-                                                   _logger);
+        // 8c：装配 SecureBatchToolExecutor（注入 SecurityGuard）
+        // 同步当前档位（_securityLevel 当前是构造时固定；为迭代 10 /mode 运行时切换预留）
+        _securityGuard.Level = _securityLevel;
+        var batchExecutor = new SecureBatchToolExecutor(executor, _registry!, _securityGuard,
+                                                         _agentConfig.MaxParallelism ?? 5,
+                                                         hitlGate: hitlGate,
+                                                         _logger);
 
         _sink = new ChannelEventSink();
         var agentLoop = new AgentLoop(_provider,
@@ -380,9 +388,8 @@ internal sealed class TerminalApp : IDisposable
                     _ => HitlChoice.Deny
                 };
 
-                var decision = choice == HitlChoice.Deny
-                    ? HitlDecision.Deny("用户拒绝执行")
-                    : new HitlDecision(choice);
+                var decision = choice == HitlChoice.Deny ? HitlDecision.Deny("用户拒绝执行")
+                                                         : new HitlDecision(choice);
                 tcs.SetResult(decision);
             }
         });

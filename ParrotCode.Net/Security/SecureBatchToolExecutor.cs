@@ -27,6 +27,5 @@ public sealed class SecureBatchToolExecutor : BatchToolExecutor
     /// 委托 SecurityGuard.CheckAsync 做三层安全检查（黑名单 → 沙箱 → 策略）。
     /// 基类入口预扫描会对此方法对每个 call 调一次（含 Read 组）。
     /// </summary>
-    protected override async Task<ToolResult?> OnBeforeExecuteAsync(ToolCall call, CancellationToken ct) =>
-        await _guard.CheckAsync(call, ct);
+    protected override async Task<ToolResult?> OnBeforeExecuteAsync(ToolCall call, CancellationToken ct) => await _guard.CheckAsync(call, ct);
 }

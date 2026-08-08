@@ -19,9 +19,8 @@ public sealed class PathSandbox
     public PathSandbox(SecurityContext context)
     {
         _ctx = context ?? throw new ArgumentNullException(nameof(context));
-        _pathComparison = OperatingSystem.IsWindows()
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal;
+        _pathComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase
+                                                      : StringComparison.Ordinal;
     }
 
     /// <summary>
@@ -44,18 +43,15 @@ public sealed class PathSandbox
 
         // 1. DenyPaths（最高优先级，所有非 Permissive 档位生效）
         if (IsInPaths(normalized, _ctx.DenyPaths))
-            return new PathCheckResult(PathCheckResultKind.DeniedExplicit,
-                $"路径在 DenyPaths 中：{normalized}");
+            return new PathCheckResult(PathCheckResultKind.DeniedExplicit, $"路径在 DenyPaths 中：{normalized}");
 
         // 2. .. 越界检测（Normal + Strict）：rawPath 含 .. 且规范化后跳出所有白名单根
         if (rawPath.Contains("..") && !IsWithinAnyRoot(normalized))
-            return new PathCheckResult(PathCheckResultKind.DeniedTraversal,
-                $".. 遍历跳出项目根：{rawPath} → {normalized}");
+            return new PathCheckResult(PathCheckResultKind.DeniedTraversal, $".. 遍历跳出项目根：{rawPath} → {normalized}");
 
         // 3. Strict 白名单：路径必须在白名单子树内
         if (level == SecurityLevel.Strict && !IsWithinAnyRoot(normalized))
-            return new PathCheckResult(PathCheckResultKind.DeniedSandbox,
-                $"Strict 模式：路径不在白名单内：{normalized}");
+            return new PathCheckResult(PathCheckResultKind.DeniedSandbox, $"Strict 模式：路径不在白名单内：{normalized}");
 
         return new PathCheckResult(PathCheckResultKind.Allowed);
     }
@@ -121,9 +117,8 @@ public sealed class PathSandbox
             return true;
 
         // 确保是目录子树匹配（parent + 分隔符前缀），防 /home/user-evil 误判为 /home/user 子树
-        var prefix = parent.EndsWith(Path.DirectorySeparatorChar)
-            ? parent
-            : parent + Path.DirectorySeparatorChar;
+        var prefix = parent.EndsWith(Path.DirectorySeparatorChar) ? parent
+                                                                  : parent + Path.DirectorySeparatorChar;
         return child.StartsWith(prefix, _pathComparison);
     }
 }

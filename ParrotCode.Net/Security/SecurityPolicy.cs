@@ -13,8 +13,7 @@ public sealed class SecurityPolicy
 {
     private readonly PathSandbox _sandbox;
 
-    public SecurityPolicy(PathSandbox sandbox) =>
-        _sandbox = sandbox ?? throw new ArgumentNullException(nameof(sandbox));
+    public SecurityPolicy(PathSandbox sandbox) => _sandbox = sandbox ?? throw new ArgumentNullException(nameof(sandbox));
 
     /// <summary>
     /// 评估是否拦截。null=放行；ToolResult.Fail=拦截。

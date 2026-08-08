@@ -104,11 +104,30 @@ public sealed record TuiConfig
 }
 
 /// <summary>
-/// 安全配置（7b 占位，迭代 8 接入真实拦截）。</summary>
+/// 安全配置（7b 占位，迭代 8 接入真实拦截）。
+/// 迭代 8c 扩展 AllowPaths / DenyPaths / ExtraBlacklist，由 App.RunAsync 规范化后传入 SecurityGuard。
+/// </summary>
 public sealed record SecurityConfig
 {
     /// <summary>
-    /// 安全等级："strict" | "normal"（默认）| "permissive"。7b 仅状态栏显示，不拦截。
+    /// 安全等级："strict" | "normal"（默认）| "permissive"。大小写不敏感；兼容旧拼法 "permisive"。
+    /// 7b 仅状态栏显示，迭代 8 接入真实拦截。
     /// </summary>
     public string? Level { get; init; }
+
+    /// <summary>
+    /// 额外允许的路径白名单（绝对或相对项目根）。Strict 模式下只允许这些 + 项目根的读写。
+    /// 相对路径基于项目根（当前工作目录）解析为绝对。
+    /// </summary>
+    public IList<string> AllowPaths { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// 显式拒绝的路径（最高优先级，所有非 Permissive 档位生效）。
+    /// </summary>
+    public IList<string> DenyPaths { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// 额外黑名单命令正则模式（与硬编码黑名单合并）。YAML 中反斜杠需转义（如 \\b）。
+    /// </summary>
+    public IList<string> ExtraBlacklist { get; init; } = Array.Empty<string>();
 }
