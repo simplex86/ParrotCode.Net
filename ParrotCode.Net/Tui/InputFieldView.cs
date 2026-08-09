@@ -12,7 +12,7 @@ namespace ParrotCode;
 internal sealed class InputFieldView : TextField
 {
     private readonly Channel<string> _submitChannel = Channel.CreateUnbounded<string>();
-    private readonly string[] _commands = { "/clear", "/exit", "/quit", "/help", "/status" };
+    private List<string> _commands = new() { "/clear", "/exit", "/quit", "/help", "/status" };
     private readonly List<string> _history = new();
     private int _historyIndex = -1;
     private string? _savedBuffer;  // 历史导航时保存当前输入
@@ -25,6 +25,17 @@ internal sealed class InputFieldView : TextField
 
     /// <summary>退出请求事件（Esc 按下）。</summary>
     public event Action? ExitRequested;
+
+    /// <summary>
+    /// 设置命令名列表（含 / 前缀），供 Tab 补全。迭代 10a：数据源改为动态注入。
+    /// </summary>
+    public void SetCommands(IReadOnlyList<string> commandNames)
+    {
+        _commands = commandNames
+            .Select(n => n.StartsWith('/') ? n : "/" + n)
+            .OrderBy(n => n)
+            .ToList();
+    }
 
     public InputFieldView()
     {

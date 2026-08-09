@@ -9,18 +9,23 @@ namespace ParrotCode;
 /// 装配三段式布局：顶部状态栏 + 中间对话区 + 底部输入框。
 /// 7c-3：enable_hitl=true 时注入 HitlPrompt（模态 Dialog），工具执行时显示 Spinner。
 /// 8c：注入 SecurityGuard，StartAgentRound 装配 SecureBatchToolExecutor（黑名单 + 沙箱 + 策略）。
+/// 10a：实现 IUiControl；HandleUserInput 改用 CommandDispatcher；命令系统反射自动注册。
 /// </summary>
-internal sealed class TerminalApp : IDisposable
+internal sealed class TerminalApp : IUiControl, IDisposable
 {
     private readonly IBaseProvider _provider;
     private readonly ProviderConfig _providerConfig;
     private readonly AgentConfig _agentConfig;
     private readonly TuiConfig _tuiConfig;
-    private readonly SecurityLevel _securityLevel;
+    private SecurityLevel _securityLevel;  // 10a 改为可变（/mode 运行时切换）
     private readonly SecurityGuard _securityGuard;  // 8c 新增：跨轮保留
     private readonly ContextCompressor _compressor;  // 迭代 9 新增
     private readonly ILogger? _logger;
     private readonly CancellationToken _ct;
+
+    // 10a 新增：命令系统
+    private readonly CommandRegistry _commandRegistry;
+    private readonly CommandDispatcher _commandDispatcher;
 
     private Toplevel? _top;
     private StatusBarView? _statusBarView;
@@ -57,6 +62,14 @@ internal sealed class TerminalApp : IDisposable
         _compressor = compressor ?? throw new ArgumentNullException(nameof(compressor));
         _logger = logger;
         _ct = ct;
+
+        // 10a 新增：构造命令系统
+        _commandRegistry = new CommandRegistry(logger);
+        // 手动注册需依赖注入的命令（HelpCommand 需 Registry 引用）
+        _commandRegistry.Register(new HelpCommand(_commandRegistry));
+        // 反射自动注册其余无参构造的命令（HelpCommand 已注册会跳过）
+        _commandRegistry.AutoRegisterFromAssembly();
+        _commandDispatcher = new CommandDispatcher(_commandRegistry);
     }
 
     public Task RunAsync()
@@ -133,8 +146,8 @@ internal sealed class TerminalApp : IDisposable
             Width = Dim.Fill(),
             Height = Dim.Fill(3)  // 底部预留 3 行（Spinner 状态行 + 分割线 + 输入框）
         };
-        _chatView.AppendStaticMessage("ParrotCode.Net Terminal 模式（7c-3 HITL + Spinner）");
-        _chatView.AppendStaticMessage("输入消息开始对话，/exit 退出，/clear 清空");
+        _chatView.AppendStaticMessage("ParrotCode.Net Terminal 模式（10a 命令系统）");
+        _chatView.AppendStaticMessage("输入消息开始对话，/help 查看命令，/exit 退出");
 
         // 7c-3：Spinner 状态行（独立 1 行，不叠加在 ChatView 上，避免覆盖对话内容）
         // 工具执行时显示 "Thinking ⠋" 动画，不执行时 Text 为空（占位但不重绘内容）
@@ -203,6 +216,9 @@ internal sealed class TerminalApp : IDisposable
 
         _top.Add(_statusBarView, sep1, _chatView, _spinner, _hitlBar, sep2, promptLabel, _inputFieldView);
         _inputFieldView.SetFocus();
+
+        // 10a 新增：初始化 Tab 补全数据源（动态命令名 + 别名）
+        _inputFieldView.SetCommands(_commandRegistry.GetAllNamesWithAliases());
     }
 
     /// <summary>
@@ -249,34 +265,29 @@ internal sealed class TerminalApp : IDisposable
     }
 
     /// <summary>
-    /// 处理用户输入行。
+    /// 处理用户输入行。10a：改用 CommandDispatcher 分发命令。
+    /// Agent 运行时忽略所有输入（命令和对话都忽略，避免状态竞争）。
     /// </summary>
-    private void HandleUserInput(string line)
+    private async void HandleUserInput(string line)
     {
-        // 斜杠命令硬编码分发
-        if (line is "/exit" or "/quit")
-        {
-            Application.RequestStop(_top!);
-            return;
-        }
-        if (line is "/clear")
-        {
-            _chatView!.ClearMessages();
-            _history!.Clear();
-            return;
-        }
-        if (line is "/help")
-        {
-            _chatView!.AppendStaticMessage("可用命令：/clear /exit /help");
-            return;
-        }
         if (string.IsNullOrWhiteSpace(line)) return;
 
-        // Agent 正在运行时忽略新输入
-        if (_agentTask is not null && !_agentTask.IsCompleted)
-            return;
+        // Agent 正在运行时忽略新输入（命令和对话都忽略，避免状态竞争）
+        if (_agentTask is not null && !_agentTask.IsCompleted) return;
 
-        // 显示用户消息
+        // 命令分发
+        var context = BuildCommandContext();
+        var dispatchResult = await _commandDispatcher.DispatchAsync(line, context, _ct);
+        if (dispatchResult.Handled)
+        {
+            if (dispatchResult.Output is not null)
+                _chatView!.AppendStaticMessage(dispatchResult.Output);
+            if (dispatchResult.ExitApp)
+                Application.RequestStop(_top!);
+            return;
+        }
+
+        // 非命令 → 走 AI
         _chatView!.AppendUserMessage(line);
         _history!.AddUser(line);
 
@@ -287,6 +298,22 @@ internal sealed class TerminalApp : IDisposable
         // 启动 AgentLoop
         StartAgentRound();
     }
+
+    /// <summary>
+    /// 构建命令执行上下文。10a 新增。
+    /// </summary>
+    private CommandContext BuildCommandContext() => new(
+        History: _history!,
+        Compressor: _compressor,
+        SecurityGuard: _securityGuard,
+        Ui: this,
+        Ct: _ct)
+    {
+        ProviderConfig = _providerConfig,
+        TuiConfig = _tuiConfig,
+        AgentConfig = _agentConfig,
+        InstructionSummary = null,  // 10c 填充
+    };
 
     /// <summary>
     /// 启动一轮 AgentLoop，事件流通过 IdleCallback 消费。
@@ -422,6 +449,24 @@ internal sealed class TerminalApp : IDisposable
 
         return await tcs.Task;
     }
+
+    // ===== IUiControl 实现（10a 新增）=====
+    // 命令通过 IUiControl 接口操作 UI，不直接依赖 TerminalApp 具体类型。
+
+    void IUiControl.AppendStaticMessage(string text) => _chatView!.AppendStaticMessage(text);
+    void IUiControl.AppendUserMessage(string text) => _chatView!.AppendUserMessage(text);
+    void IUiControl.ClearMessages() => _chatView!.ClearMessages();
+
+    void IUiControl.RefreshStatusBar()
+        => _statusBarView!.Update(_providerConfig, _securityLevel, _tuiConfig, _registry!);
+
+    void IUiControl.UpdateTokenEstimate(int estimatedTokens)
+        => _statusBarView!.EstimatedTokens = estimatedTokens;
+
+    void IUiControl.UpdateSecurityLevel(SecurityLevel level)
+        => _securityLevel = level;  // /mode 切换后更新本地字段，StartAgentRound 会同步到 SecurityGuard
+
+    void IUiControl.RequestExit() => Application.RequestStop(_top!);
 
     public void Dispose()
     {
