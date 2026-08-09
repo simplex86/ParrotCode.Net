@@ -49,6 +49,11 @@ public sealed record AppConfig
     /// 上下文管理配置（迭代 9 新增）。null 时用默认值。
     /// </summary>
     public ContextConfig? Context { get; init; }
+
+    /// <summary>
+    /// 会话持久化配置（迭代 10b 新增）。null 时用默认值。
+    /// </summary>
+    public SessionConfig? Session { get; init; }
 }
 
 /// <summary>
@@ -168,4 +173,16 @@ public sealed record ContextConfig
 
     /// <summary>是否启用自动压缩。默认 true。false 时仅截断不摘要。</summary>
     public bool? EnableAutoCompress { get; init; }
+}
+
+/// <summary>
+/// 会话持久化配置（迭代 10b 新增）。null 时用默认值。
+/// </summary>
+public sealed record SessionConfig
+{
+    /// <summary>会话存储目录。默认 ".parrotcode/sessions"（项目根下）。</summary>
+    public string? StorageDir { get; init; }
+
+    /// <summary>是否启用会话持久化。默认 true。false 时 /session 命令不可用。</summary>
+    public bool? Enable { get; init; }
 }

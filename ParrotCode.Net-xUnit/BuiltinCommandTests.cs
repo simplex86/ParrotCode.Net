@@ -12,7 +12,8 @@ public class BuiltinCommandTests
         MockUiControl? ui = null,
         ContextCompressor? compressor = null,
         SecurityGuard? guard = null,
-        ConversationHistory? history = null)
+        ConversationHistory? history = null,
+        SessionStore? sessionStore = null)
     {
         ui ??= new MockUiControl();
         history ??= new ConversationHistory();
@@ -20,7 +21,7 @@ public class BuiltinCommandTests
             new SecurityContext { ProjectRoot = Path.GetTempPath() },
             SecurityLevel.Normal);
 
-        return new CommandContext(history, compressor, guard, ui, CancellationToken.None)
+        return new CommandContext(history, compressor, guard, ui, sessionStore, CancellationToken.None)
         {
             ProviderConfig = new ProviderConfig { Name = "test", Protocol = "mock", Model = "test-model" },
             TuiConfig = new TuiConfig(),
@@ -203,10 +204,10 @@ public class BuiltinCommandTests
         result.Output.Should().Contain("未加载");
     }
 
-    // ===== SessionCommand (stub) =====
+    // ===== SessionCommand =====
 
     [Fact]
-    public async Task SessionCommand_Stub_ReturnsNotEnabled()
+    public async Task SessionCommand_NullStore_ReturnsNotEnabled()
     {
         var cmd = new SessionCommand();
         var ctx = CreateContext();
@@ -215,7 +216,6 @@ public class BuiltinCommandTests
 
         result.Handled.Should().BeTrue();
         result.Output.Should().Contain("未启用");
-        result.Output.Should().Contain("10b");
     }
 
     // ===== ExitCommand =====

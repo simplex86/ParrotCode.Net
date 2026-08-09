@@ -9,6 +9,7 @@ public sealed record CommandContext(
     ContextCompressor? Compressor,
     SecurityGuard SecurityGuard,
     IUiControl Ui,
+    SessionStore? SessionStore,
     CancellationToken Ct)
 {
     /// <summary>

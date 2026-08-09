@@ -69,3 +69,8 @@ context:
   keep_recent_messages: 4         # 摘要时保留的最近消息数
   max_circuit_failures: 2         # 熔断器最大连续失败次数
   enable_auto_compress: true      # 是否启用自动压缩（false 时仅截断不摘要）
+
+# 迭代 10b 新增：会话持久化配置（全部可选，省略时用默认值）
+session:
+  enable: true                    # 是否启用会话持久化（false 时 /session 命令不可用）
+  # storage_dir: .parrotcode/sessions  # 会话存储目录（默认项目根下 .parrotcode/sessions）

@@ -53,25 +53,34 @@ internal sealed class App
         // 【迭代 9】构造 ContextCompressor（上下文管理：层 1 截断 + 层 2 摘要）
         // 始终创建——层 1 截断始终生效；enable_auto_compress: false 仅禁用层 2 摘要
         var contextConfig = _config.Context ?? new ContextConfig();
-        var contextWindow = contextConfig.ContextWindowTokens
-                            ?? tuiConfig.ContextWindowTokens
-                            ?? 64000;
+        var contextWindow = contextConfig.ContextWindowTokens ?? tuiConfig.ContextWindowTokens ?? 64000;
         var truncateConfig = new TruncateConfig
         {
             PerResultThreshold = contextConfig.PerResultThreshold ?? 50_000,
             RoundTotalThreshold = contextConfig.RoundTotalThreshold ?? 200_000,
             PreviewLength = contextConfig.PreviewLength ?? 2_000,
         };
-        var compressor = new ContextCompressor(
-            _provider, contextWindow,
-            truncateConfig,
-            contextConfig.WarningFraction ?? 0.7,
-            contextConfig.TriggerFraction ?? 0.9,
-            contextConfig.KeepRecentMessages ?? 4,
-            contextConfig.MaxCircuitFailures ?? 2,
-            enableAutoCompress: contextConfig.EnableAutoCompress ?? true,
-            projectRoot: projectRoot,
-            _logger);
+        var compressor = new ContextCompressor(_provider, 
+                                               contextWindow,
+                                               truncateConfig,
+                                               contextConfig.WarningFraction ?? 0.7,
+                                               contextConfig.TriggerFraction ?? 0.9,
+                                               contextConfig.KeepRecentMessages ?? 4,
+                                               contextConfig.MaxCircuitFailures ?? 2,
+                                               enableAutoCompress: contextConfig.EnableAutoCompress ?? true,
+                                               projectRoot: projectRoot,
+                                               _logger);
+
+        // 【迭代 10b】构造 SessionStore（会话持久化）
+        // enable: false 时不构造（/session 命令返回"未启用"）
+        var sessionConfig = _config.Session ?? new SessionConfig();
+        SessionStore? sessionStore = null;
+        if (sessionConfig.Enable ?? true)
+        {
+            var storageDir = string.IsNullOrWhiteSpace(sessionConfig.StorageDir) ? Path.Combine(projectRoot, ".parrotcode", "sessions")
+                                                                                 : sessionConfig.StorageDir;
+            sessionStore = new SessionStore(storageDir, _logger);
+        }
 
         using var terminalApp = new TerminalApp(_provider,
                                                 _providerConfig,
@@ -80,6 +89,7 @@ internal sealed class App
                                                 securityLevel,
                                                 securityGuard,
                                                 compressor,
+                                                sessionStore,
                                                 _logger,
                                                 _ct);
         await terminalApp.RunAsync();
