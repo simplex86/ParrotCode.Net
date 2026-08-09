@@ -207,8 +207,8 @@ internal sealed class ChatView : ListView
     }
 
     /// <summary>
-    /// 按显示宽度换行。支持 CJK 全角字符（占 2 列）。
-    /// 按字符级别换行——CJK 无空格分词，字符换行最自然。
+    /// 按显示宽度换行。支持 CJK 全角字符和 emoji（占 2 列）。
+    /// 使用 Rune 遍历，确保代理对（emoji 等）不被拆分到两行。
     /// </summary>
     private static IEnumerable<string> WrapText(string text, int maxWidth)
     {
@@ -225,19 +225,19 @@ internal sealed class ChatView : ListView
             var current = new StringBuilder();
             int currentWidth = 0;
 
-            foreach (var ch in segment)
+            foreach (var rune in segment.EnumerateRunes())
             {
-                int chWidth = IsWide(ch) ? 2 : 1;
+                int runeWidth = IsWideRune(rune) ? 2 : 1;
 
-                if (currentWidth + chWidth > maxWidth && current.Length > 0)
+                if (currentWidth + runeWidth > maxWidth && current.Length > 0)
                 {
                     yield return current.ToString();
                     current.Clear();
                     currentWidth = 0;
                 }
 
-                current.Append(ch);
-                currentWidth += chWidth;
+                current.Append(rune);
+                currentWidth += runeWidth;
             }
 
             if (current.Length > 0)
@@ -246,23 +246,28 @@ internal sealed class ChatView : ListView
     }
 
     /// <summary>
-    /// 判断字符是否为全角（CJK/emoji 等，占 2 列）。
+    /// 判断 Rune 是否为全角（CJK/emoji 等，占 2 列）。
     /// 基于 Unicode East Asian Width 标准。
+    /// 使用 Rune 而非 char，正确处理 BMP 之外的码点（如 emoji 代理对）。
     /// </summary>
-    private static bool IsWide(char ch)
+    private static bool IsWideRune(Rune rune)
     {
-        return ch >= 0x1100 && (
-            ch <= 0x115F ||                              // Hangul Jamo
-            ch == 0x2329 || ch == 0x232A ||
-            (ch >= 0x2E80 && ch <= 0xA4CF && ch != 0x303F) ||  // CJK Radicals
-            (ch >= 0xAC00 && ch <= 0xD7A3) ||            // Hangul Syllables
-            (ch >= 0xF900 && ch <= 0xFAFF) ||            // CJK Compatibility Ideographs
-            (ch >= 0xFE30 && ch <= 0xFE4F) ||            // CJK Compatibility Forms
-            (ch >= 0xFF00 && ch <= 0xFF60) ||            // Fullwidth Forms
-            (ch >= 0xFFE0 && ch <= 0xFFE6) ||
-            (ch >= 0x1F300 && ch <= 0x1F64F) ||          // Emoji
-            (ch >= 0x20000 && ch <= 0x2FFFD) ||
-            (ch >= 0x30000 && ch <= 0x3FFFD)
+        var v = rune.Value;
+        return v >= 0x1100 && (
+            v <= 0x115F ||                                // Hangul Jamo
+            v == 0x2329 || v == 0x232A ||
+            (v >= 0x2E80 && v <= 0xA4CF && v != 0x303F) || // CJK Radicals
+            (v >= 0xAC00 && v <= 0xD7A3) ||               // Hangul Syllables
+            (v >= 0xF900 && v <= 0xFAFF) ||               // CJK Compatibility Ideographs
+            (v >= 0xFE30 && v <= 0xFE4F) ||               // CJK Compatibility Forms
+            (v >= 0xFF00 && v <= 0xFF60) ||               // Fullwidth Forms
+            (v >= 0xFFE0 && v <= 0xFFE6) ||
+            (v >= 0x1F300 && v <= 0x1F64F) ||             // Emoji
+            (v >= 0x1F680 && v <= 0x1F6FF) ||             // Transport and Map Symbols
+            (v >= 0x1F900 && v <= 0x1F9FF) ||             // Supplemental Symbols and Pictographs
+            (v >= 0x1FA70 && v <= 0x1FAFF) ||             // Symbols and Pictographs Extended-A
+            (v >= 0x20000 && v <= 0x2FFFD) ||
+            (v >= 0x30000 && v <= 0x3FFFD)
         );
     }
 

@@ -20,6 +20,7 @@ internal sealed class TerminalApp : IUiControl, IDisposable
     private SecurityLevel _securityLevel;  // 10a 改为可变（/mode 运行时切换）
     private readonly SecurityGuard _securityGuard;  // 8c 新增：跨轮保留
     private readonly ContextCompressor _compressor;  // 迭代 9 新增
+    private readonly SessionStore? _sessionStore;  // 10b 新增：会话持久化
     private readonly ILogger? _logger;
     private readonly CancellationToken _ct;
 
@@ -50,6 +51,7 @@ internal sealed class TerminalApp : IUiControl, IDisposable
                        SecurityLevel securityLevel,
                        SecurityGuard securityGuard,  // 8c 新增
                        ContextCompressor compressor,  // 迭代 9 新增
+                       SessionStore? sessionStore,    // 10b 新增
                        ILogger? logger,
                        CancellationToken ct)
     {
@@ -60,6 +62,7 @@ internal sealed class TerminalApp : IUiControl, IDisposable
         _securityLevel = securityLevel;
         _securityGuard = securityGuard ?? throw new ArgumentNullException(nameof(securityGuard));
         _compressor = compressor ?? throw new ArgumentNullException(nameof(compressor));
+        _sessionStore = sessionStore;
         _logger = logger;
         _ct = ct;
 
@@ -302,12 +305,12 @@ internal sealed class TerminalApp : IUiControl, IDisposable
     /// <summary>
     /// 构建命令执行上下文。10a 新增。
     /// </summary>
-    private CommandContext BuildCommandContext() => new(
-        History: _history!,
-        Compressor: _compressor,
-        SecurityGuard: _securityGuard,
-        Ui: this,
-        Ct: _ct)
+    private CommandContext BuildCommandContext() => new(History: _history!,
+                                                        Compressor: _compressor,
+                                                        SecurityGuard: _securityGuard,
+                                                        Ui: this,
+                                                        SessionStore: _sessionStore,
+                                                        Ct: _ct)
     {
         ProviderConfig = _providerConfig,
         TuiConfig = _tuiConfig,
@@ -457,14 +460,11 @@ internal sealed class TerminalApp : IUiControl, IDisposable
     void IUiControl.AppendUserMessage(string text) => _chatView!.AppendUserMessage(text);
     void IUiControl.ClearMessages() => _chatView!.ClearMessages();
 
-    void IUiControl.RefreshStatusBar()
-        => _statusBarView!.Update(_providerConfig, _securityLevel, _tuiConfig, _registry!);
+    void IUiControl.RefreshStatusBar() => _statusBarView!.Update(_providerConfig, _securityLevel, _tuiConfig, _registry!);
 
-    void IUiControl.UpdateTokenEstimate(int estimatedTokens)
-        => _statusBarView!.EstimatedTokens = estimatedTokens;
+    void IUiControl.UpdateTokenEstimate(int estimatedTokens) => _statusBarView!.EstimatedTokens = estimatedTokens;
 
-    void IUiControl.UpdateSecurityLevel(SecurityLevel level)
-        => _securityLevel = level;  // /mode 切换后更新本地字段，StartAgentRound 会同步到 SecurityGuard
+    void IUiControl.UpdateSecurityLevel(SecurityLevel level) => _securityLevel = level;  // /mode 切换后更新本地字段，StartAgentRound 会同步到 SecurityGuard
 
     void IUiControl.RequestExit() => Application.RequestStop(_top!);
 

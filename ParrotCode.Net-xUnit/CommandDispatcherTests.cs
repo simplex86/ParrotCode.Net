@@ -53,7 +53,7 @@ public class CommandDispatcherTests
         var history = new ConversationHistory();
         var secCtx = new SecurityContext { ProjectRoot = Path.GetTempPath() };
         var guard = new SecurityGuard(secCtx, SecurityLevel.Normal);
-        return new CommandContext(history, null, guard, new MockUiControl(), CancellationToken.None)
+        return new CommandContext(history, null, guard, new MockUiControl(), null, CancellationToken.None)
         {
             ProviderConfig = new ProviderConfig { Name = "test", Protocol = "mock", Model = "test-model" },
             TuiConfig = new TuiConfig(),

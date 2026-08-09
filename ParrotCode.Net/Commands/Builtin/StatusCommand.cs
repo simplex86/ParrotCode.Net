@@ -36,7 +36,13 @@ public sealed class StatusCommand : ICommand
             sb.AppendLine("上下文压缩: 未启用");
         }
 
-        // 10c 填充；10a 中为 null
+        // 10b：会话存储状态
+        if (context.SessionStore is not null)
+            sb.AppendLine($"会话存储: {context.SessionStore.StorageDir}");
+        else
+            sb.AppendLine("会话存储: 未启用");
+
+        // 10c 填充；10a/10b 中为 null
         sb.AppendLine($"项目指令: {context.InstructionSummary ?? "未加载"}");
 
         return Task.FromResult(CommandResult.WithOutput(sb.ToString()));
