@@ -198,4 +198,65 @@ public class InputFieldViewTests
 
         submittedText.Should().Be("test message");
     }
+
+    // ===== 迭代 10a：SetCommands 动态 Tab 补全 =====
+
+    [Fact]
+    public void SetCommands_UpdatesCommandList()
+    {
+        var view = CreateView();
+        view.SetCommands(new[] { "custom", "special" });
+
+        // /c 唯一匹配 /custom
+        view.Text = "/c";
+        view.NewKeyDownEvent(new Key(KeyCode.Tab));
+        view.Text.Should().Be("/custom");
+    }
+
+    [Fact]
+    public void SetCommands_TabCompletesFromDynamicList()
+    {
+        var view = CreateView();
+        view.SetCommands(new[] { "alpha", "beta", "gamma" });
+
+        view.Text = "/be";
+        view.NewKeyDownEvent(new Key(KeyCode.Tab));
+        view.Text.Should().Be("/beta");
+    }
+
+    [Fact]
+    public void SetCommands_TabUniqueMatch_AutoFills()
+    {
+        var view = CreateView();
+        view.SetCommands(new[] { "help", "history" });
+
+        // /he 唯一匹配 /help
+        view.Text = "/he";
+        view.NewKeyDownEvent(new Key(KeyCode.Tab));
+        view.Text.Should().Be("/help");
+    }
+
+    [Fact]
+    public void SetCommands_TabMultipleMatches_DoesNotFill()
+    {
+        var view = CreateView();
+        view.SetCommands(new[] { "help", "history" });
+
+        // /h 匹配 /help 和 /history，不填充
+        view.Text = "/h";
+        view.NewKeyDownEvent(new Key(KeyCode.Tab));
+        view.Text.Should().Be("/h");
+    }
+
+    [Fact]
+    public void SetCommands_IncludesAliases()
+    {
+        var view = CreateView();
+        view.SetCommands(new[] { "exit", "quit" });
+
+        // /q 唯一匹配 /quit
+        view.Text = "/q";
+        view.NewKeyDownEvent(new Key(KeyCode.Tab));
+        view.Text.Should().Be("/quit");
+    }
 }
