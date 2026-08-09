@@ -91,8 +91,7 @@ internal sealed class AgentLoop
                 if (compression.WarningIssued && compression.WarningMessage is not null)
                     await sink.WriteAsync(new AgentEvent.ContextWarningEvent(compression.WarningMessage), cancellationToken);
                 if (compression.WasCompressed)
-                    await sink.WriteAsync(new AgentEvent.ContextCompressedEvent(
-                        compression.MessagesCompressed, compression.EstimatedTokensSaved), cancellationToken);
+                    await sink.WriteAsync(new AgentEvent.ContextCompressedEvent(compression.MessagesCompressed, compression.EstimatedTokensSaved), cancellationToken);
             }
 
             // 构造消息：system prompt + 历史快照
@@ -157,9 +156,8 @@ internal sealed class AgentLoop
             IReadOnlyList<TruncationInfo> truncInfos = Array.Empty<TruncationInfo>();
             if (_compressor is not null)
             {
-                var (tc, ti) = _compressor.TruncateBatch(
-                    results.Select(r => r.Success ? r.Content : string.Empty).ToArray(),
-                    toolCalls.Select(c => c.Name).ToArray());
+                var (tc, ti) = _compressor.TruncateBatch(results.Select(r => r.Success ? r.Content : string.Empty).ToArray(),
+                                                         toolCalls.Select(c => c.Name).ToArray());
                 truncatedContents = tc;
                 truncInfos = ti;
             }
@@ -175,8 +173,7 @@ internal sealed class AgentLoop
 
                 // 迭代 9：截断事件（如果有）
                 if (truncInfos.FirstOrDefault(t => t.Index == i) is { } truncInfo)
-                    await sink.WriteAsync(new AgentEvent.TruncationEvent(
-                        truncInfo.ToolName, truncInfo.OriginalChars, truncInfo.FilePath), cancellationToken);
+                    await sink.WriteAsync(new AgentEvent.TruncationEvent(truncInfo.ToolName, truncInfo.OriginalChars, truncInfo.FilePath), cancellationToken);
 
                 // 7b 新增：HITL/安全层拒绝 → emit ToolBlockedEvent；否则 ToolResultEvent
                 // 启发式：拒绝原因含"用户拒绝"或"被拦截"标记为 blocked。
@@ -190,9 +187,8 @@ internal sealed class AgentLoop
                 }
 
                 // 迭代 9：入历史的是截断后内容
-                var contentToStore = result.Success
-                    ? truncatedContents[i]
-                    : $"错误：{result.Error}";
+                var contentToStore = result.Success ? truncatedContents[i]
+                                                    : $"错误：{result.Error}";
                 history.AddTool(contentToStore, call.Id);
             }
 
@@ -209,9 +205,8 @@ internal sealed class AgentLoop
     /// 拒绝原因含"用户拒绝"或"被拦截"标记为 blocked。
     /// 更严谨的做法：BatchToolExecutor 返回带 Blocked 标志的结构（迭代 8 再精细化）。
     /// </summary>
-    private static bool IsHitlDenial(ToolResult result) =>
-        !result.Success && (result.Error?.Contains("用户拒绝") == true ||
-                            result.Error?.Contains("被拦截") == true);
+    private static bool IsHitlDenial(ToolResult result) => !result.Success && 
+                                                           (result.Error?.Contains("用户拒绝") == true || result.Error?.Contains("被拦截") == true);
 
     /// <summary>
     /// 构造带 system prompt 的消息列表。

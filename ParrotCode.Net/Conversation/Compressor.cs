@@ -54,8 +54,7 @@ public sealed class ContextCompressor
 
     // ── 层 1：截断 ──
 
-    public (string[] TruncatedContents, IReadOnlyList<TruncationInfo> Infos)
-        TruncateBatch(IReadOnlyList<string> contents, IReadOnlyList<string> toolNames)
+    public (string[] TruncatedContents, IReadOnlyList<TruncationInfo> Infos) TruncateBatch(IReadOnlyList<string> contents, IReadOnlyList<string> toolNames)
         => _truncator.TruncateBatch(contents, toolNames);
 
     // ── 层 2：压缩 ──

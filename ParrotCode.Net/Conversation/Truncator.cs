@@ -4,23 +4,35 @@ using System.Text.RegularExpressions;
 
 namespace ParrotCode;
 
-/// <summary>截断配置。所有阈值可经 ContextConfig 覆盖。</summary>
+/// <summary>
+/// 截断配置。所有阈值可经 ContextConfig 覆盖。
+/// </summary>
 public sealed record TruncateConfig
 {
-    /// <summary>单条工具结果截断阈值（字符数）。默认 50_000。</summary>
+    /// <summary>
+    /// 单条工具结果截断阈值（字符数）。默认 50_000。
+    /// </summary>
     public int PerResultThreshold { get; init; } = 50_000;
 
-    /// <summary>一轮内所有工具结果合计截断阈值（字符数）。默认 200_000。</summary>
+    /// <summary>
+    /// 一轮内所有工具结果合计截断阈值（字符数）。默认 200_000。
+    /// </summary>
     public int RoundTotalThreshold { get; init; } = 200_000;
 
-    /// <summary>截断后保留的预览长度（字符数）。默认 2_000。</summary>
+    /// <summary>
+    /// 截断后保留的预览长度（字符数）。默认 2_000。
+    /// </summary>
     public int PreviewLength { get; init; } = 2_000;
 
-    /// <summary>截断文件存储目录。默认 ".parrotcode/truncated"（项目根下）。</summary>
+    /// <summary>
+    /// 截断文件存储目录。默认 ".parrotcode/truncated"（项目根下）。
+    /// </summary>
     public string StorageDir { get; init; } = ".parrotcode/truncated";
 }
 
-/// <summary>单条截断结果信息。</summary>
+/// <summary>
+/// 单条截断结果信息。
+/// </summary>
 public sealed record TruncationInfo(
     int Index,
     string ToolName,
@@ -47,7 +59,9 @@ public sealed class ToolResultTruncator
             : Path.GetFullPath(_config.StorageDir, root);
     }
 
-    /// <summary>存储目录（绝对路径）。</summary>
+    /// <summary>
+    /// 存储目录（绝对路径）。
+    /// </summary>
     public string StorageDir => _storageDir;
 
     /// <summary>
@@ -110,7 +124,9 @@ public sealed class ToolResultTruncator
         return (result, infos);
     }
 
-    /// <summary>截换单条内容到磁盘，返回 (预览文本, 文件路径)。</summary>
+    /// <summary>
+    /// 截换单条内容到磁盘，返回 (预览文本, 文件路径)。
+    /// </summary>
     private (string Preview, string? FilePath) TruncateToDisk(string content, string toolName)
     {
         var previewLen = Math.Min(_config.PreviewLength, content.Length);
