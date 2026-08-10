@@ -115,7 +115,10 @@ internal sealed class TerminalApp : IUiControl, IDisposable
         {
             foreach (var adapter in _mcpManager.Adapters)
             {
-                try { _registry.Register(adapter); }
+                try 
+                {
+                    _registry.Register(adapter); 
+                }
                 catch (ArgumentException ex)
                 {
                     _logger?.LogWarning(ex, "MCP 工具注册失败（名称冲突）：{Name}", adapter.Name);

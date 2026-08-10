@@ -23,7 +23,7 @@
 | 日志 | `print` | `Microsoft.Extensions.Logging` | 控制台 + 文件双 sink |
 | 单元测试 | 暂无 | `xUnit` + `FluentAssertions` | 每个 Agent 模块配测试 |
 
-## 二、总体路线图（12 个迭代）
+## 二、总体路线图（14 个迭代）
 
 ```
 迭代 1  项目脚手架 + 最小可跑（Hello Agent）
@@ -37,10 +37,12 @@
 迭代 9  上下文管理（工具结果截断 + 结构化摘要 + 压缩协调）
 迭代 10 斜杠命令 + 会话持久化（JSONL）+ 项目指令
 迭代 11 MCP 协议客户端（Stdio + HTTP SSE）
-迭代 12 Skill 系统 + Hook 引擎 + 子 Agent
+迭代 12 Skill 系统
+迭代 13 子 Agent
+迭代 14 Hook 引擎
 ```
 
-> 说明：MewCode 的 Team 编排、Git Worktree 隔离、自动笔记三个子系统作为 **可选扩展** 放在计划末尾，不强制实现，等前 12 个迭代跑通后再决定是否引入。
+> 说明：MewCode 的 Team 编排、Git Worktree 隔离、自动笔记三个子系统作为 **可选扩展** 放在计划末尾，不强制实现，等前 14 个迭代跑通后再决定是否引入。
 
 每个迭代遵循统一结构：
 - **学习目标**：本阶段掌握的 Agent 概念 / .NET 技巧。
@@ -493,17 +495,13 @@ Mcp/
 
 ---
 
-## 迭代 12：Skill 系统 + Hook 引擎 + 子 Agent
+## 迭代 12：Skill 系统
 
 ### 学习目标
-- **Skill 系统**：可编程 SOP（标准作业流程），让 Agent 按固定步骤做事。
-- **Hook 引擎**：生命周期事件钩子，实现"工具执行前自动跑脚本"等自动化。
-- **子 Agent**：Fork 父上下文或定义式空白对话，并行处理子任务。
+- 可编程 SOP（标准作业流程），让 Agent 按固定步骤做事。
 
 ### 交付物
 - `Skills/` 模块：YAML frontmatter + MD 正文、三级存储、两阶段加载。
-- `Hooks/` 模块：12 种事件 + 条件匹配 + 4 种动作。
-- `SubAgent/` 模块：Fork / 定义两种模式 + 后台任务管理。
 
 ### 影响文件
 ```
@@ -517,13 +515,30 @@ Skills/
     ├── commit.md              # Conventional Commits SOP
     ├── review.md              # 代码审查 SOP
     └── test.md                # 测试生成 SOP
-Hooks/
-├── Models.cs                  # Rule / Condition / Action
-├── Conditions.cs              # exact/not/regex/glob + ALL/ANY
-├── Templates.cs               # {{var}} 替换
-├── Actions.cs                 # shell / prompt_inject / http / sub_agent
-├── Loader.cs                  # YAML 加载 + 集中校验
-└── Engine.cs                  # HookEngine
+```
+
+### 关键设计点
+- **Skill 两阶段加载**：Phase 1 把名字+描述注入 system prompt（让 LLM 知道有这玩意）→ LLM 调 `skill_loader(name)` → Phase 2 把完整 SOP 注入后续每轮。避免一次性把所有 Skill 正文塞进 prompt。
+- **Skill 工具白名单**：Skill 声明 `tools_allow` / `tools_deny`，多个 Skill 同时激活取交集。`skill_loader` 本身始终豁免。
+
+### 验收标准
+- `/commit` 触发 commit Skill，AI 按 Conventional Commits 流程工作。
+
+### 进阶练习
+- 为 code review 或测试生成编写自定义 Skill，验证两阶段加载是否把 SOP 正确注入每轮对话。
+
+---
+
+## 迭代 13：子 Agent
+
+### 学习目标
+- Fork 父上下文或定义式空白对话，并行处理子任务。
+
+### 交付物
+- `SubAgent/` 模块：Fork / 定义两种模式 + 后台任务管理。
+
+### 影响文件
+```
 SubAgent/
 ├── Models.cs
 ├── Runner.cs                  # SubAgentRunner
@@ -539,19 +554,12 @@ SubAgent/
 ```
 
 ### 关键设计点
-- **Skill 两阶段加载**：Phase 1 把名字+描述注入 system prompt（让 LLM 知道有这玩意）→ LLM 调 `skill_loader(name)` → Phase 2 把完整 SOP 注入后续每轮。避免一次性把所有 Skill 正文塞进 prompt。
-- **Skill 工具白名单**：Skill 声明 `tools_allow` / `tools_deny`，多个 Skill 同时激活取交集。`skill_loader` 本身始终豁免。
-- **Hook 12 种事件**：会话/轮次/消息/工具/系统五类。`tool_pre_exec` 可返回拒绝原因 → LLM 收到调整（拦截能力）。
-- **Hook 4 种动作**：`shell`（跑命令）/ `prompt_inject`（注入提示）/ `http`（调 webhook）/ `sub_agent`（起子 Agent）。
 - **子 Agent 两种模式**：
   - 定义式：空白对话 + 角色 SOP（explorer/planner/general）。
   - Fork 式：继承父历史 + 注入强硬指令（不创建子 worker、不对话、直接干活、结构化报告 ≤ 500 字）。
 - **三层工具过滤**：全局禁止 sub_agent 嵌套 → 角色 allow/deny → 后台任务只读白名单。
-- **错误隔离**：Hook 失败只记日志，不中断 Agent 主循环。
 
 ### 验收标准
-- `/commit` 触发 commit Skill，AI 按 Conventional Commits 流程工作。
-- 配置一个 `tool_pre_exec` Hook，在 `write_file` 前自动跑 `git stash`。
 - 让主 Agent 用 `sub_agent(task="探索一下这个项目的目录结构", role="explorer")`，后台子 Agent 完成后把报告注入主对话。
 
 ### 进阶练习
@@ -559,7 +567,39 @@ SubAgent/
 
 ---
 
-## 三、可选扩展（前 12 迭代跑通后再考虑）
+## 迭代 14：Hook 引擎
+
+### 学习目标
+- 生命周期事件钩子，实现"工具执行前自动跑脚本"等自动化。
+
+### 交付物
+- `Hooks/` 模块：12 种事件 + 条件匹配 + 4 种动作。
+
+### 影响文件
+```
+Hooks/
+├── Models.cs                  # Rule / Condition / Action
+├── Conditions.cs              # exact/not/regex/glob + ALL/ANY
+├── Templates.cs               # {{var}} 替换
+├── Actions.cs                 # shell / prompt_inject / http / sub_agent
+├── Loader.cs                  # YAML 加载 + 集中校验
+└── Engine.cs                  # HookEngine
+```
+
+### 关键设计点
+- **Hook 12 种事件**：会话/轮次/消息/工具/系统五类。`tool_pre_exec` 可返回拒绝原因 → LLM 收到调整（拦截能力）。
+- **Hook 4 种动作**：`shell`（跑命令）/ `prompt_inject`（注入提示）/ `http`（调 webhook）/ `sub_agent`（起子 Agent，依赖迭代 13 的 `SubAgentRunner`）。
+- **错误隔离**：Hook 失败只记日志，不中断 Agent 主循环。
+
+### 验收标准
+- 配置一个 `tool_pre_exec` Hook，在 `write_file` 前自动跑 `git stash`。
+
+### 进阶练习
+- 配置一个 `http` 动作的 Hook，把每次工具调用事件 POST 到自己的 webhook 做调用审计。
+
+---
+
+## 三、可选扩展（前 14 迭代跑通后再考虑）
 
 | 模块 | 对应 MewCode | 价值 | 复杂度 |
 | --- | --- | --- | --- |
