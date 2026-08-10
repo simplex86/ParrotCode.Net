@@ -17,10 +17,22 @@ internal sealed class MockTransport : ITransport
 {
     private readonly Channel<string> _sendChannel = Channel.CreateUnbounded<string>();
     private readonly Channel<string> _receiveChannel = Channel.CreateUnbounded<string>();
+    private Func<string, string?>? _autoResponder;
 
     public Task ConnectAsync(CancellationToken ct) => Task.CompletedTask;
 
-    public async Task SendAsync(string json, CancellationToken ct) => await _sendChannel.Writer.WriteAsync(json, ct);
+    public async Task SendAsync(string json, CancellationToken ct)
+    {
+        await _sendChannel.Writer.WriteAsync(json, ct);
+
+        // 如果设置了自动响应器，根据发送的请求自动生成响应（避免竞态：响应在 TCS 注册后才入队）
+        if (_autoResponder is not null)
+        {
+            var response = _autoResponder(json);
+            if (response is not null)
+                _receiveChannel.Writer.TryWrite(response);
+        }
+    }
 
     public async Task<string?> ReceiveAsync(CancellationToken ct)
     {
@@ -59,4 +71,10 @@ internal sealed class MockTransport : ITransport
     /// 关闭接收通道，模拟连接断开（ReceiveAsync 返回 null）。
     /// </summary>
     public void SimulateDisconnect() => _receiveChannel.Writer.TryComplete();
+
+    /// <summary>
+    /// 设置自动响应器：每次 SendAsync 时，用发送的 JSON 调用 responder，
+    /// 返回非 null 则自动入队响应（避免竞态：响应在 TCS 注册后才入队）。
+    /// </summary>
+    public void SetAutoResponder(Func<string, string?> responder) => _autoResponder = responder;
 }

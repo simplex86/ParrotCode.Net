@@ -14,6 +14,7 @@ internal sealed class JsonRpc
     private int _nextId = 0;
     private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonElement>> _pending = new();
     private readonly ILogger? _logger;
+    private static readonly JsonSerializerOptions s_camelCase = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public JsonRpc(ILogger? logger = null) => _logger = logger;
 
@@ -34,7 +35,7 @@ internal sealed class JsonRpc
             method,
             @params
         };
-        var json = JsonSerializer.Serialize(request);
+        var json = JsonSerializer.Serialize(request, s_camelCase);
 
         return (json, tcs.Task);
     }
@@ -48,7 +49,7 @@ internal sealed class JsonRpc
             method,
             @params
         };
-        return JsonSerializer.Serialize(notification);
+        return JsonSerializer.Serialize(notification, s_camelCase);
     }
 
     /// <summary>
