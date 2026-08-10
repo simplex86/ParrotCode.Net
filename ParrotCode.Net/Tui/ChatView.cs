@@ -207,8 +207,8 @@ internal sealed class ChatView : ListView
     }
 
     /// <summary>
-    /// 按显示宽度换行。支持 CJK 全角字符和 emoji（占 2 列）。
-    /// 使用 Rune 遍历，确保代理对（emoji 等）不被拆分到两行。
+    /// 按显示宽度换行。使用 Terminal.Gui 的 GetColumns() 计算列宽，
+    /// 确保换行位置与渲染层一致，避免行中间乱码。
     /// </summary>
     private static IEnumerable<string> WrapText(string text, int maxWidth)
     {
@@ -227,7 +227,8 @@ internal sealed class ChatView : ListView
 
             foreach (var rune in segment.EnumerateRunes())
             {
-                int runeWidth = IsWideRune(rune) ? 2 : 1;
+                int runeWidth = rune.GetColumns();
+                if (runeWidth < 0) runeWidth = 0;
 
                 if (currentWidth + runeWidth > maxWidth && current.Length > 0)
                 {
@@ -243,32 +244,6 @@ internal sealed class ChatView : ListView
             if (current.Length > 0)
                 yield return current.ToString();
         }
-    }
-
-    /// <summary>
-    /// 判断 Rune 是否为全角（CJK/emoji 等，占 2 列）。
-    /// 基于 Unicode East Asian Width 标准。
-    /// 使用 Rune 而非 char，正确处理 BMP 之外的码点（如 emoji 代理对）。
-    /// </summary>
-    private static bool IsWideRune(Rune rune)
-    {
-        var v = rune.Value;
-        return v >= 0x1100 && (
-            v <= 0x115F ||                                // Hangul Jamo
-            v == 0x2329 || v == 0x232A ||
-            (v >= 0x2E80 && v <= 0xA4CF && v != 0x303F) || // CJK Radicals
-            (v >= 0xAC00 && v <= 0xD7A3) ||               // Hangul Syllables
-            (v >= 0xF900 && v <= 0xFAFF) ||               // CJK Compatibility Ideographs
-            (v >= 0xFE30 && v <= 0xFE4F) ||               // CJK Compatibility Forms
-            (v >= 0xFF00 && v <= 0xFF60) ||               // Fullwidth Forms
-            (v >= 0xFFE0 && v <= 0xFFE6) ||
-            (v >= 0x1F300 && v <= 0x1F64F) ||             // Emoji
-            (v >= 0x1F680 && v <= 0x1F6FF) ||             // Transport and Map Symbols
-            (v >= 0x1F900 && v <= 0x1F9FF) ||             // Supplemental Symbols and Pictographs
-            (v >= 0x1FA70 && v <= 0x1FAFF) ||             // Symbols and Pictographs Extended-A
-            (v >= 0x20000 && v <= 0x2FFFD) ||
-            (v >= 0x30000 && v <= 0x3FFFD)
-        );
     }
 
     private static string Truncate(string s, int max) =>
