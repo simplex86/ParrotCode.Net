@@ -59,6 +59,11 @@ public sealed record AppConfig
     /// 项目指令配置（迭代 10c 新增）。null 时用默认值。
     /// </summary>
     public InstructionsConfig? Instructions { get; init; }
+
+    /// <summary>
+    /// MCP 客户端配置（迭代 11 新增）。null 时用默认值。
+    /// </summary>
+    public McpConfig? Mcp { get; init; }
 }
 
 /// <summary>

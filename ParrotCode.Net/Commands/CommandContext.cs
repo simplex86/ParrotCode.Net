@@ -36,6 +36,11 @@ public sealed record CommandContext(
     public string? InstructionSummary { get; init; }
 
     /// <summary>
+    /// MCP 连接状态概要（/status 显示，11c 填充）。
+    /// </summary>
+    public string? McpSummary { get; init; }
+
+    /// <summary>
     /// 原始输入行（含 / 前缀，便于错误提示引用与参数解析）。
     /// </summary>
     public string RawInput { get; init; } = string.Empty;

@@ -97,6 +97,18 @@ internal sealed class App
                 _logger.LogInformation("已加载项目指令：{Count} 个文件", instructions.Sources.Count);
         }
 
+        // 【迭代 11c】构造 McpConnectionManager（MCP 客户端）
+        // enable: false 时不构造（TerminalApp 用 null）
+        var mcpConfig = _config.Mcp ?? new McpConfig();
+        McpConnectionManager? mcpManager = null;
+        if (mcpConfig.Enable ?? true)
+        {
+            mcpManager = new McpConnectionManager((mcpConfig.Servers ?? Array.Empty<McpServerConfig>()).ToArray(), _logger);
+            // 并行连接所有 MCP server，工具适配器收集到 mcpManager.Adapters
+            // TerminalApp.RunAsync 中统一注册到主 ToolRegistry
+            await mcpManager.ConnectAllAsync(_ct);
+        }
+
         using var terminalApp = new TerminalApp(_provider,
                                                 _providerConfig,
                                                 _config.Agent,
@@ -106,9 +118,14 @@ internal sealed class App
                                                 compressor,
                                                 sessionStore,
                                                 instructions,         // 10c 新增
+                                                mcpManager,           // 11c 新增
                                                 _logger,
                                                 _ct);
         await terminalApp.RunAsync();
+
+        // 程序退出时关闭 MCP 连接
+        if (mcpManager is not null)
+            await mcpManager.CloseAllAsync(_ct);
     }
 
     /// <summary>

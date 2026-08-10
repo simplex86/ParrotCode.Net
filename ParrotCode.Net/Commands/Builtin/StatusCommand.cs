@@ -45,6 +45,9 @@ public sealed class StatusCommand : ICommand
         // 10c 填充；10a/10b 中为 null
         sb.AppendLine($"项目指令: {context.InstructionSummary ?? "未加载"}");
 
+        // 11c 填充
+        sb.AppendLine($"MCP: {context.McpSummary ?? "未启用"}");
+
         return Task.FromResult(CommandResult.WithOutput(sb.ToString()));
     }
 }

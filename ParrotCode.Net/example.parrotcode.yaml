@@ -80,3 +80,22 @@ instructions:
   enable: true                        # 是否启用项目指令加载
   max_include_depth: 3                # @include 最大嵌套深度
   # project_instructions_path: ./PARROTCODE.md  # 自定义项目指令路径（默认 ./PARROTCODE.md）
+
+# 迭代 11 新增：MCP 客户端配置
+mcp:
+  enable: true
+  servers:
+    # Stdio MCP server 示例：filesystem 服务器
+    # - name: filesystem
+    #   transport: stdio
+    #   command: npx
+    #   args: "-y @modelcontextprotocol/server-filesystem /tmp"
+    #   # working_dir: /optional/working/directory
+    #   # env:
+    #   #   NODE_OPTIONS: "--max-old-space-size=4096"
+
+    # HTTP MCP server 示例
+    # - name: remote-tools
+    #   transport: http
+    #   url: https://mcp.example.com/mcp
+    #   api_key: ${MCP_API_KEY}

@@ -24,6 +24,7 @@ internal sealed class TerminalApp : IUiControl, IDisposable
     private readonly InstructionResult _instructions;  // 10c 新增：项目指令
     private readonly string _instructionSummary;       // 10c 新增：指令概要（/status 用）
     private readonly string _systemPromptWithInstructions;  // 10c 新增：含指令的 system prompt
+    private readonly McpConnectionManager? _mcpManager;  // 11c 新增：MCP 连接管理器
     private readonly ILogger? _logger;
     private readonly CancellationToken _ct;
 
@@ -56,6 +57,7 @@ internal sealed class TerminalApp : IUiControl, IDisposable
                        ContextCompressor compressor,  // 迭代 9 新增
                        SessionStore? sessionStore,    // 10b 新增
                        InstructionResult? instructions,  // 10c 新增
+                       McpConnectionManager? mcpManager,  // 11c 新增
                        ILogger? logger,
                        CancellationToken ct)
     {
@@ -68,6 +70,7 @@ internal sealed class TerminalApp : IUiControl, IDisposable
         _compressor = compressor ?? throw new ArgumentNullException(nameof(compressor));
         _sessionStore = sessionStore;
         _instructions = instructions ?? new InstructionResult();
+        _mcpManager = mcpManager;
         _logger = logger;
         _ct = ct;
 
@@ -104,6 +107,19 @@ internal sealed class TerminalApp : IUiControl, IDisposable
         _registry.Register(new GlobTool());
         _registry.Register(new GrepTool());
         _registry.Register(new RunCommandTool());
+
+        // 【迭代 11c】注册 MCP 工具
+        if (_mcpManager is not null)
+        {
+            foreach (var adapter in _mcpManager.Adapters)
+            {
+                try { _registry.Register(adapter); }
+                catch (ArgumentException ex)
+                {
+                    _logger?.LogWarning(ex, "MCP 工具注册失败（名称冲突）：{Name}", adapter.Name);
+                }
+            }
+        }
 
         _history = new ConversationHistory();
 
@@ -335,6 +351,7 @@ internal sealed class TerminalApp : IUiControl, IDisposable
         TuiConfig = _tuiConfig,
         AgentConfig = _agentConfig,
         InstructionSummary = _instructionSummary,  // 10c 填充
+        McpSummary = _mcpManager?.GetStatusSummary(),  // 11c 填充
     };
 
     /// <summary>
