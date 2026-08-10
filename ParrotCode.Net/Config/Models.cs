@@ -54,6 +54,11 @@ public sealed record AppConfig
     /// 会话持久化配置（迭代 10b 新增）。null 时用默认值。
     /// </summary>
     public SessionConfig? Session { get; init; }
+
+    /// <summary>
+    /// 项目指令配置（迭代 10c 新增）。null 时用默认值。
+    /// </summary>
+    public InstructionsConfig? Instructions { get; init; }
 }
 
 /// <summary>
@@ -147,31 +152,49 @@ public sealed record SecurityConfig
 /// </summary>
 public sealed record ContextConfig
 {
-    /// <summary>上下文窗口 token 数。null 时回退 TuiConfig.ContextWindowTokens ?? 64000。</summary>
+    /// <summary>
+    /// 上下文窗口 token 数。null 时回退 TuiConfig.ContextWindowTokens ?? 64000。
+    /// </summary>
     public int? ContextWindowTokens { get; init; }
 
-    /// <summary>警告阈值（占窗口比例）。默认 0.7。</summary>
+    /// <summary>
+    /// 警告阈值（占窗口比例）。默认 0.7。
+    /// </summary>
     public double? WarningFraction { get; init; }
 
-    /// <summary>触发摘要阈值（占窗口比例）。默认 0.9。</summary>
+    /// <summary>
+    /// 触发摘要阈值（占窗口比例）。默认 0.9。
+    /// </summary>
     public double? TriggerFraction { get; init; }
 
-    /// <summary>单条工具结果截断阈值（字符数）。默认 50_000。</summary>
+    /// <summary>
+    /// 单条工具结果截断阈值（字符数）。默认 50_000。
+    /// </summary>
     public int? PerResultThreshold { get; init; }
 
-    /// <summary>一轮内工具结果合计截断阈值（字符数）。默认 200_000。</summary>
+    /// <summary>
+    /// 一轮内工具结果合计截断阈值（字符数）。默认 200_000。
+    /// </summary>
     public int? RoundTotalThreshold { get; init; }
 
-    /// <summary>截断后保留预览长度（字符数）。默认 2_000。</summary>
+    /// <summary>
+    /// 截断后保留预览长度（字符数）。默认 2_000。
+    /// </summary>
     public int? PreviewLength { get; init; }
 
-    /// <summary>摘要时保留的最近消息数。默认 4。</summary>
+    /// <summary>
+    /// 摘要时保留的最近消息数。默认 4。
+    /// </summary>
     public int? KeepRecentMessages { get; init; }
 
-    /// <summary>熔断器最大连续失败次数。默认 2。</summary>
+    /// <summary>
+    /// 熔断器最大连续失败次数。默认 2。
+    /// </summary>
     public int? MaxCircuitFailures { get; init; }
 
-    /// <summary>是否启用自动压缩。默认 true。false 时仅截断不摘要。</summary>
+    /// <summary>
+    /// 是否启用自动压缩。默认 true。false 时仅截断不摘要。
+    /// </summary>
     public bool? EnableAutoCompress { get; init; }
 }
 
@@ -180,9 +203,34 @@ public sealed record ContextConfig
 /// </summary>
 public sealed record SessionConfig
 {
-    /// <summary>会话存储目录。默认 ".parrotcode/sessions"（项目根下）。</summary>
+    /// <summary>
+    /// 会话存储目录。默认 ".parrotcode/sessions"（项目根下）。
+    /// </summary>
     public string? StorageDir { get; init; }
 
-    /// <summary>是否启用会话持久化。默认 true。false 时 /session 命令不可用。</summary>
+    /// <summary>
+    /// 是否启用会话持久化。默认 true。false 时 /session 命令不可用。
+    /// </summary>
     public bool? Enable { get; init; }
+}
+
+/// <summary>
+/// 项目指令配置（迭代 10c 新增）。null 时用默认值。
+/// </summary>
+public sealed record InstructionsConfig
+{
+    /// <summary>
+    /// 是否启用项目指令加载。默认 true。false 时不扫描任何指令文件。
+    /// </summary>
+    public bool? Enable { get; init; }
+
+    /// <summary>
+    /// @include 最大嵌套深度。默认 3。
+    /// </summary>
+    public int? MaxIncludeDepth { get; init; }
+
+    /// <summary>
+    /// 自定义项目指令文件路径（覆盖默认的 ./PARROTCODE.md）。
+    /// </summary>
+    public string? ProjectInstructionsPath { get; init; }
 }

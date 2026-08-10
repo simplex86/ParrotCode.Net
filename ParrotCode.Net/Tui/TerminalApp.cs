@@ -21,6 +21,9 @@ internal sealed class TerminalApp : IUiControl, IDisposable
     private readonly SecurityGuard _securityGuard;  // 8c 新增：跨轮保留
     private readonly ContextCompressor _compressor;  // 迭代 9 新增
     private readonly SessionStore? _sessionStore;  // 10b 新增：会话持久化
+    private readonly InstructionResult _instructions;  // 10c 新增：项目指令
+    private readonly string _instructionSummary;       // 10c 新增：指令概要（/status 用）
+    private readonly string _systemPromptWithInstructions;  // 10c 新增：含指令的 system prompt
     private readonly ILogger? _logger;
     private readonly CancellationToken _ct;
 
@@ -52,6 +55,7 @@ internal sealed class TerminalApp : IUiControl, IDisposable
                        SecurityGuard securityGuard,  // 8c 新增
                        ContextCompressor compressor,  // 迭代 9 新增
                        SessionStore? sessionStore,    // 10b 新增
+                       InstructionResult? instructions,  // 10c 新增
                        ILogger? logger,
                        CancellationToken ct)
     {
@@ -63,8 +67,16 @@ internal sealed class TerminalApp : IUiControl, IDisposable
         _securityGuard = securityGuard ?? throw new ArgumentNullException(nameof(securityGuard));
         _compressor = compressor ?? throw new ArgumentNullException(nameof(compressor));
         _sessionStore = sessionStore;
+        _instructions = instructions ?? new InstructionResult();
         _logger = logger;
         _ct = ct;
+
+        // 10c：拼接 system prompt（默认 prompt + 项目指令）
+        var basePrompt = !string.IsNullOrWhiteSpace(_agentConfig.SystemPrompt) ? _agentConfig.SystemPrompt!
+                                                                               : DefaultSystemPrompt;
+        _systemPromptWithInstructions = _instructions.HasInstructions ? basePrompt + "\n\n## 项目指令\n" + _instructions.Content
+                                                                      : basePrompt;
+        _instructionSummary = InstructionLoader.GetSummary(_instructions);
 
         // 10a 新增：构造命令系统
         _commandRegistry = new CommandRegistry(logger);
@@ -74,6 +86,13 @@ internal sealed class TerminalApp : IUiControl, IDisposable
         _commandRegistry.AutoRegisterFromAssembly();
         _commandDispatcher = new CommandDispatcher(_commandRegistry);
     }
+
+    /// <summary>
+    /// 默认 system prompt（无自定义 prompt 时使用）。
+    /// </summary>
+    private static string DefaultSystemPrompt =>
+        "你是 Parrot Code！为学习而开发的 AI 编程助手。你可以调用工具读写文件、执行命令、搜索代码。" +
+        "每次只调用必要的工具，拿到结果后用简洁中文回复用户。";
 
     public Task RunAsync()
     {
@@ -315,7 +334,7 @@ internal sealed class TerminalApp : IUiControl, IDisposable
         ProviderConfig = _providerConfig,
         TuiConfig = _tuiConfig,
         AgentConfig = _agentConfig,
-        InstructionSummary = null,  // 10c 填充
+        InstructionSummary = _instructionSummary,  // 10c 填充
     };
 
     /// <summary>
@@ -327,7 +346,8 @@ internal sealed class TerminalApp : IUiControl, IDisposable
         var executor = new ToolExecutor(_registry!, TimeSpan.FromSeconds(_agentConfig.ToolTimeoutSeconds ?? 30), _logger);
 
         // 7c-3：注入 HitlPrompt（如果启用），否则 NullHitlGate
-        IHitlGate? hitlGate = _hitlPrompt is null ? new NullHitlGate() : (IHitlGate)_hitlPrompt;
+        IHitlGate? hitlGate = _hitlPrompt is null ? new NullHitlGate() 
+                                                  : (IHitlGate)_hitlPrompt;
 
         // 8c：装配 SecureBatchToolExecutor（注入 SecurityGuard）
         // 同步当前档位（_securityLevel 当前是构造时固定；为迭代 10 /mode 运行时切换预留）
@@ -345,7 +365,7 @@ internal sealed class TerminalApp : IUiControl, IDisposable
                                       batchExecutor,
                                       _agentConfig.MaxRounds ?? 10,
                                       _agentConfig.ToolChoice ?? "auto",
-                                      _agentConfig.SystemPrompt,
+                                      _systemPromptWithInstructions,  // 10c 改：用含指令的 prompt
                                       compressor: _compressor,  // 迭代 9 新增
                                       logger: null);  // 不给 logger，避免 stderr 交错
 

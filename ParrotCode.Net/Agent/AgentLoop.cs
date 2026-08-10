@@ -43,7 +43,7 @@ internal sealed class AgentLoop
     }
 
     private static string DefaultSystemPrompt =>
-        "你是 Parrot Code！是为学习而开发的 AI 编程助手。你可以调用工具读写文件、执行命令、搜索代码。" +
+        "你是 Parrot Code！为学习而开发的 AI 编程助手。你可以调用工具读写文件、执行命令、搜索代码。" +
         "每次只调用必要的工具，拿到结果后用简洁中文回复用户。";
 
     /// <summary>
