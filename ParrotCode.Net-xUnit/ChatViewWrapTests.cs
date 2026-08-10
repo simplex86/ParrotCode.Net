@@ -122,4 +122,90 @@ public class ChatViewWrapTests
         lines[1].Should().Be("界测试");
         lines[2].Should().Be("中文");
     }
+
+    // ===== 诊断测试：验证孤立代理对的行为 =====
+
+    [Fact]
+    public void Diagnostic_EnumerateRunes_IsolatedHighSurrogate_ProducesReplacementChar()
+    {
+        // 🎉 = U+1F389 = 代理对 (\uD83C, \uDF89)
+        // 模拟流式 chunk 边界截断：只有高代理 \uD83C 到达
+        var truncated = "Hello \uD83C";
+
+        // 直接验证 .NET 的 EnumerateRunes 行为（这是 .NET 的固有行为，无法改变）
+        var runes = truncated.EnumerateRunes().ToList();
+        foreach (var r in runes)
+            Console.WriteLine($"  Rune: U+{r.Value:X4} = {r}");
+
+        // .NET 的 EnumerateRunes 将孤立高代理替换为 U+FFFD——这是根因
+        runes.Last().Value.Should().Be(0xFFFD,
+            "孤立高代理在 EnumerateRunes 下会被替换为 U+FFFD——这是 .NET 的固有行为");
+    }
+
+    [Fact]
+    public void Diagnostic_WrapText_TruncatedSurrogate_NoReplacementChar_AfterFix()
+    {
+        // 模拟流式 chunk 1：只有高代理
+        var chunk1 = "Hello \uD83C";
+        var lines1 = InvokeWrapText(chunk1, 20).ToList();
+        var output1 = string.Join("", lines1);
+
+        Console.WriteLine($"  Chunk1 output: [{output1}]");
+        Console.WriteLine($"  Contains U+FFFD: {output1.Contains('\uFFFD')}");
+
+        // 修复后：输出不应包含 U+FFFD（末尾孤立高代理被跳过）
+        output1.Contains('\uFFFD').Should().BeFalse(
+            "修复后 WrapText 应跳过末尾孤立高代理，不产生 U+FFFD");
+
+        // 输出应为 "Hello "（末尾空格保留，高代理跳过）
+        output1.Should().Be("Hello ");
+    }
+
+    [Fact]
+    public void Diagnostic_WrapText_CompleteSurrogatePair_NoReplacementChar()
+    {
+        // 模拟流式 chunk 1 + chunk 2：完整代理对
+        var complete = "Hello \uD83C\uDF89!";  // "Hello 🎉!"
+        var lines = InvokeWrapText(complete, 20).ToList();
+        var output = string.Join("", lines);
+
+        Console.WriteLine($"  Complete output: [{output}]");
+        Console.WriteLine($"  Contains U+FFFD: {output.Contains('\uFFFD')}");
+
+        output.Contains('\uFFFD').Should().BeFalse(
+            "完整代理对不应产生 U+FFFD");
+    }
+
+    [Fact]
+    public void Diagnostic_WrapText_StreamingChunks_SeamlessTransition()
+    {
+        // 模拟完整的流式过程：chunk 1（截断）→ chunk 2（补全）
+        // chunk 1: "Hello \uD83C"（只有高代理）
+        var chunk1 = "Hello \uD83C";
+        var lines1 = InvokeWrapText(chunk1, 20).ToList();
+        var output1 = string.Join("", lines1);
+        Console.WriteLine($"  Chunk1: [{output1}] FFFD={output1.Contains('\uFFFD')}");
+
+        // chunk 2: "\uDF89!"（低代理 + 感叹号），追加到 chunk 1 后
+        var complete = "Hello \uD83C\uDF89!";
+        var lines2 = InvokeWrapText(complete, 20).ToList();
+        var output2 = string.Join("", lines2);
+        Console.WriteLine($"  Complete: [{output2}] FFFD={output2.Contains('\uFFFD')}");
+
+        // 两个阶段都不应产生 U+FFFD
+        output1.Contains('\uFFFD').Should().BeFalse("chunk 1 不应有 U+FFFD");
+        output2.Contains('\uFFFD').Should().BeFalse("完整后不应有 U+FFFD");
+    }
+
+    [Fact]
+    public void Diagnostic_WrapText_OnlyHighSurrogate_ProducesEmpty()
+    {
+        // 极端情况：文本只有一个高代理字符
+        var onlyHigh = "\uD83C";
+        var lines = InvokeWrapText(onlyHigh, 20).ToList();
+        var output = string.Join("", lines);
+
+        Console.WriteLine($"  Output: [{output}]");
+        output.Contains('\uFFFD').Should().BeFalse("孤立高代理应被跳过，不产生 U+FFFD");
+    }
 }

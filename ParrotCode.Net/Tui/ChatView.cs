@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Specialized;
+using System.Diagnostics;
 using System.Text;
 using Terminal.Gui;
 using Attribute = Terminal.Gui.Attribute;
@@ -209,12 +210,28 @@ internal sealed class ChatView : ListView
     /// <summary>
     /// 按显示宽度换行。使用 Terminal.Gui 的 GetColumns() 计算列宽，
     /// 确保换行位置与渲染层一致，避免行中间乱码。
+    /// 规范化换行符（\r\n → \n，独立 \r → \n），防止 \r 被终端渲染为可见符号。
+    /// 流式文本末尾的孤立高代理（代理对被 chunk 边界截断）暂时跳过——
+    /// 下一个 chunk 会补全低代理，届时渲染完整 emoji。
     /// </summary>
     private static IEnumerable<string> WrapText(string text, int maxWidth)
     {
         if (maxWidth <= 0) maxWidth = 1;
 
-        foreach (var segment in text.Split('\n'))
+        // 规范化换行符：\r\n → \n，独立 \r → \n
+        text = text.Replace("\r\n", "\n").Replace("\r", "\n");
+
+        // 流式文本末尾可能含孤立高代理（UTF-16 代理对被 chunk 边界截断）
+        // EnumerateRunes() 会将孤立代理替换为 U+FFFD（�），这是渲染乱码的根因。
+        // 正确处理：渲染时暂时排除末尾孤立高代理，不从 _currentText 删除——
+        // 下一个 chunk 补全低代理后，完整代理对会被正确渲染。
+        bool hasTrailingHighSurrogate = text.Length > 0
+            && char.IsHighSurrogate(text, text.Length - 1);
+        string renderText = hasTrailingHighSurrogate
+            ? text[..^1]  // 排除末尾高代理 char
+            : text;
+
+        foreach (var segment in renderText.Split('\n'))
         {
             if (string.IsNullOrEmpty(segment))
             {

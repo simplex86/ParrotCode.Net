@@ -123,7 +123,15 @@ internal sealed class TerminalApp : IUiControl, IDisposable
 
         _history = new ConversationHistory();
 
-        // 2. Terminal.Gui 初始化（静态 API）
+        // 2. Terminal.Gui 初始化
+        // Windows: WindowsDriver 不支持非 BMP 字符（emoji），会将其替换为 U+FFFD（�）。
+        //          强制使用 NetDriver，通过 System.Console API 将 emoji 透传给终端字体渲染。
+        // Linux/macOS: 使用默认驱动（CursesDriver），emoji 支持取决于终端模拟器。
+        if (OperatingSystem.IsWindows())
+        {
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
+            Application.ForceDriver = "NetDriver";
+        }
         Application.Init();
 
         // 3. 构建三段式布局（创建 _spinner, _inputFieldView 等）
