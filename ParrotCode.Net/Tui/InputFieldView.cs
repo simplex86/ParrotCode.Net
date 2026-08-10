@@ -147,15 +147,15 @@ internal sealed class InputFieldView : TextField
 
         var text = Text?.ToString() ?? "";
 
-        // 计算光标前所有字符的显示宽度（CJK 全角=2 列，ASCII=1 列）
+        // 计算光标前所有字符的显示宽度（用 Terminal.Gui GetColumns 统一计算）
         int cursorCol = 0;
-        for (int i = 0; i < CursorPosition && i < text.Length; i++)
-            cursorCol += IsWide(text[i]) ? 2 : 1;
+        foreach (var rune in text[..Math.Min(CursorPosition, text.Length)].EnumerateRunes())
+            cursorCol += Math.Max(0, rune.GetColumns());
 
         // 计算 ScrollOffset 对应的列偏移（ScrollOffset 是字符索引，需转为列）
         int scrollCol = 0;
-        for (int i = 0; i < ScrollOffset && i < text.Length; i++)
-            scrollCol += IsWide(text[i]) ? 2 : 1;
+        foreach (var rune in text[..Math.Min(ScrollOffset, text.Length)].EnumerateRunes())
+            scrollCol += Math.Max(0, rune.GetColumns());
 
         int cursorX = cursorCol - scrollCol;
 
@@ -170,42 +170,53 @@ internal sealed class InputFieldView : TextField
     }
 
     /// <summary>
-    /// 判断字符是否为全角（CJK/emoji 等，占 2 列）。
-    /// 基于 Unicode East Asian Width 标准（与 ChatView.IsWide 一致）。
-    /// </summary>
-    private static bool IsWide(char ch)
-    {
-        return ch >= 0x1100 && (
-            ch <= 0x115F ||                              // Hangul Jamo
-            ch == 0x2329 || ch == 0x232A ||
-            (ch >= 0x2E80 && ch <= 0xA4CF && ch != 0x303F) ||  // CJK Radicals
-            (ch >= 0xAC00 && ch <= 0xD7A3) ||            // Hangul Syllables
-            (ch >= 0xF900 && ch <= 0xFAFF) ||            // CJK Compatibility Ideographs
-            (ch >= 0xFE30 && ch <= 0xFE4F) ||            // CJK Compatibility Forms
-            (ch >= 0xFF00 && ch <= 0xFF60) ||            // Fullwidth Forms
-            (ch >= 0xFFE0 && ch <= 0xFFE6) ||
-            (ch >= 0x1F300 && ch <= 0x1F64F) ||          // Emoji
-            (ch >= 0x20000 && ch <= 0x2FFFD) ||
-            (ch >= 0x30000 && ch <= 0x3FFFD)
-        );
-    }
-
-    /// <summary>
     /// Tab 补全 / 开头的命令。
-    /// 唯一匹配→填充；多匹配→不填充（7c-3 简化，不显示候选列表）。
+    /// 唯一匹配→填充；多匹配→填充到最长公共前缀；无匹配→不做任何事。
     /// </summary>
     private void CompleteCommand(string prefix)
     {
         var matches = _commands
             .Where(c => c.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             .ToArray();
+        if (matches.Length == 0)
+            return;
+
         if (matches.Length == 1)
         {
             Text = matches[0];             // TextField 原生重绘
             CursorPosition = Text.Length;  // 光标移到末尾
             SetNeedsDraw();
+            return;
         }
-        // 多匹配或无匹配——不做任何事（7c-3 简化）
+
+        // 多匹配：填充到最长公共前缀（如 /ses → /session，因为 /session 和 /sessions 公共前缀是 /session）
+        var lcp = LongestCommonPrefix(matches);
+        if (lcp.Length > prefix.Length)
+        {
+            Text = lcp;
+            CursorPosition = Text.Length;
+            SetNeedsDraw();
+        }
+    }
+
+    private static string LongestCommonPrefix(string[] strings)
+    {
+        if (strings.Length == 0) return "";
+        var first = strings[0];
+        int len = first.Length;
+        for (int i = 1; i < strings.Length; i++)
+        {
+            len = Math.Min(len, strings[i].Length);
+            for (int j = 0; j < len; j++)
+            {
+                if (first[j] != strings[i][j])
+                {
+                    len = j;
+                    break;
+                }
+            }
+        }
+        return first[..len];
     }
 
     /// <summary>
