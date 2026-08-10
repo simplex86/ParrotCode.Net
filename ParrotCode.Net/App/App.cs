@@ -82,6 +82,21 @@ internal sealed class App
             sessionStore = new SessionStore(storageDir, _logger);
         }
 
+        // 【迭代 10c】加载项目指令（三级目录扫描 + @include 展开）
+        // enable: false 时不加载（TerminalApp 用空 InstructionResult）
+        var instructionsConfig = _config.Instructions ?? new InstructionsConfig();
+        InstructionResult instructions = new();
+        if (instructionsConfig.Enable ?? true)
+        {
+            var loader = new InstructionLoader(projectRoot: projectRoot,
+                                               maxIncludeDepth: instructionsConfig.MaxIncludeDepth ?? 3,
+                                               projectInstructionsPath: instructionsConfig.ProjectInstructionsPath,
+                                               logger: _logger);
+            instructions = loader.Load();
+            if (instructions.HasInstructions)
+                _logger.LogInformation("已加载项目指令：{Count} 个文件", instructions.Sources.Count);
+        }
+
         using var terminalApp = new TerminalApp(_provider,
                                                 _providerConfig,
                                                 _config.Agent,
@@ -90,6 +105,7 @@ internal sealed class App
                                                 securityGuard,
                                                 compressor,
                                                 sessionStore,
+                                                instructions,         // 10c 新增
                                                 _logger,
                                                 _ct);
         await terminalApp.RunAsync();
