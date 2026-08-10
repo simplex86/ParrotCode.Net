@@ -82,7 +82,7 @@ internal sealed class McpConnectionManager : IAsyncDisposable
             transport = config.Transport switch
             {
                 "stdio" => new StdioTransport(config, _logger),
-                "http" or "sse" => new HttpSseTransport(config, _logger),
+                "http" or "sse" or "streamable-http" => new StreamableHttpTransport(config, _logger),
                 _ => throw new ArgumentException($"不支持的 MCP transport：{config.Transport}")
             };
 

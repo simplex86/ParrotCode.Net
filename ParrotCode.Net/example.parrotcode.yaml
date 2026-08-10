@@ -99,6 +99,6 @@ mcp:
 
     # HTTP MCP server 示例
     # - name: remote-tools
-    #   transport: http
+    #   transport: streamable-http
     #   url: https://mcp.example.com/mcp
     #   api_key: ${MCP_API_KEY}

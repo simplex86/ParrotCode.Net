@@ -7,6 +7,9 @@ namespace ParrotCode;
 /// </summary>
 internal static class McpMethods
 {
+    /// <summary>MCP 协议版本（Streamable HTTP 传输在 initialize 后的请求需通过 MCP-Protocol-Version header 携带）。</summary>
+    public const string ProtocolVersion = "2025-06-18";
+
     public const string Initialize = "initialize";
     public const string Initialized = "notifications/initialized";
     public const string ToolsList = "tools/list";
@@ -18,7 +21,7 @@ internal static class McpMethods
 /// </summary>
 internal sealed record McpInitializeParams
 {
-    public string ProtocolVersion { get; init; } = "2025-06-18";
+    public string ProtocolVersion { get; init; } = McpMethods.ProtocolVersion;
     public McpClientCapabilities Capabilities { get; init; } = new();
     public McpClientInfo ClientInfo { get; init; } = new();
 }
@@ -99,7 +102,8 @@ public sealed record McpContentBlock
 /// <summary>
 /// 单个 MCP server 配置（迭代 11a 定义，11c 接入 AppConfig）。
 /// transport=stdio 时需要 command + args；
-/// transport=http 时需要 url；
+/// transport=http 时需要 url（Streamable HTTP，2025-03-26 起取代旧 HTTP+SSE）；
+/// "sse" 为兼容别名，等价于 "http"；
 /// 两者都需要 name。
 /// </summary>
 public sealed record McpServerConfig
@@ -111,7 +115,7 @@ public sealed record McpServerConfig
     public string Name { get; init; } = string.Empty;
 
     /// <summary>
-    /// 传输类型："stdio"（默认）| "http" | "sse"。
+    /// 传输类型："stdio"（默认）| "streamable-http"（Streamable HTTP，推荐）| "http"/"sse"（兼容别名）。
     /// </summary>
     public string Transport { get; init; } = "stdio";
 

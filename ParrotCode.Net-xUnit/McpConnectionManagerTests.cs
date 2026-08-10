@@ -7,7 +7,7 @@ using ParrotCode;
 namespace ParrotCode.xUnit;
 
 /// <summary>
-/// McpConnectionManager + HttpSseTransport SSE 解析单元测试（迭代 11c）。
+/// McpConnectionManager + StreamableHttpTransport SSE 解析单元测试（迭代 11c）。
 /// </summary>
 public class McpConnectionManagerTests
 {
@@ -123,7 +123,7 @@ public class McpConnectionManagerTests
         manager.ConfiguredCount.Should().Be(3);
     }
 
-    // ===== HttpSseTransport SSE 解析 =====
+    // ===== StreamableHttpTransport SSE 解析 =====
 
     /// <summary>Mock HttpMessageHandler：返回预设响应。</summary>
     private sealed class MockHttpMessageHandler : HttpMessageHandler
@@ -166,6 +166,12 @@ public class McpConnectionManagerTests
 
     private static string NotificationJson => """{"jsonrpc":"2.0","method":"notifications/initialized"}""";
 
+    /// <summary>构造 application/json HttpResponseMessage。</summary>
+    private static HttpResponseMessage JsonResp(string json) => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent(json, Encoding.UTF8, "application/json")
+    };
+
     /// <summary>从请求 JSON 中提取 id 和 method（通知没有 id）。</summary>
     private static (int id, string method) ParseRequest(string body)
     {
@@ -177,7 +183,7 @@ public class McpConnectionManagerTests
     }
 
     [Fact]
-    public async Task HttpSse_ConnectAndInitialize_SingleJsonResponse()
+    public async Task StreamableHttp_ConnectAndInitialize_SingleJsonResponse()
     {
         var handler = new MockHttpMessageHandler(req =>
         {
@@ -202,7 +208,7 @@ public class McpConnectionManagerTests
         });
 
         var config = new McpServerConfig { Name = "http-test", Transport = "http", Url = "http://localhost" };
-        var transport = new HttpSseTransport(config, handler);
+        var transport = new StreamableHttpTransport(config, handler);
         var client = new McpClient("http-test", transport);
 
         await client.ConnectAsync(CancellationToken.None);
@@ -215,7 +221,7 @@ public class McpConnectionManagerTests
     }
 
     [Fact]
-    public async Task HttpSse_SseResponse_ParsesDataLines()
+    public async Task StreamableHttp_SseResponse_ParsesDataLines()
     {
         var handler = new MockHttpMessageHandler(req =>
         {
@@ -247,7 +253,7 @@ public class McpConnectionManagerTests
         });
 
         var config = new McpServerConfig { Name = "sse-test", Transport = "http", Url = "http://localhost" };
-        var transport = new HttpSseTransport(config, handler);
+        var transport = new StreamableHttpTransport(config, handler);
         var client = new McpClient("sse-test", transport);
 
         await client.ConnectAsync(CancellationToken.None);
@@ -259,7 +265,7 @@ public class McpConnectionManagerTests
     }
 
     [Fact]
-    public async Task HttpSse_BearerToken_SetInAuthorizationHeader()
+    public async Task StreamableHttp_BearerToken_SetInAuthorizationHeader()
     {
         string? capturedAuth = null;
         var handler = new MockHttpMessageHandler(req =>
@@ -287,7 +293,7 @@ public class McpConnectionManagerTests
         });
 
         var config = new McpServerConfig { Name = "auth-test", Transport = "http", Url = "http://localhost", ApiKey = "secret-token" };
-        var transport = new HttpSseTransport(config, handler);
+        var transport = new StreamableHttpTransport(config, handler);
         var client = new McpClient("auth-test", transport);
 
         await client.ConnectAsync(CancellationToken.None);
@@ -298,21 +304,21 @@ public class McpConnectionManagerTests
     }
 
     [Fact]
-    public void HttpSse_MissingUrl_ThrowsArgumentException()
+    public void StreamableHttp_MissingUrl_ThrowsArgumentException()
     {
         var config = new McpServerConfig { Name = "bad", Transport = "http" };
 
-        var act = () => new HttpSseTransport(config);
+        var act = () => new StreamableHttpTransport(config);
 
         act.Should().Throw<ArgumentException>();
     }
 
     [Fact]
-    public async Task HttpSse_ConnectAsync_InitializesChannel()
+    public async Task StreamableHttp_ConnectAsync_InitializesChannel()
     {
         var handler = new MockHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
         var config = new McpServerConfig { Name = "test", Transport = "http", Url = "http://localhost" };
-        var transport = new HttpSseTransport(config, handler);
+        var transport = new StreamableHttpTransport(config, handler);
 
         await transport.ConnectAsync(CancellationToken.None);
 
@@ -322,14 +328,118 @@ public class McpConnectionManagerTests
     }
 
     [Fact]
-    public async Task HttpSse_SendBeforeConnect_ThrowsInvalidOperationException()
+    public async Task StreamableHttp_SendBeforeConnect_ThrowsInvalidOperationException()
     {
         var handler = new MockHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
         var config = new McpServerConfig { Name = "test", Transport = "http", Url = "http://localhost" };
-        var transport = new HttpSseTransport(config, handler);
+        var transport = new StreamableHttpTransport(config, handler);
 
         var act = async () => await transport.SendAsync("{}", CancellationToken.None);
         await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Fact]
+    public async Task StreamableHttp_AcceptHeader_DeclaresJsonAndSse()
+    {
+        string? capturedAccept = null;
+        var handler = new MockHttpMessageHandler(req =>
+        {
+            capturedAccept = req.Headers.Accept.ToString();
+            var body = req.Content!.ReadAsStringAsync(CancellationToken.None).Result;
+            var (id, method) = ParseRequest(body);
+
+            return method switch
+            {
+                "initialize" => JsonResp(InitResponse(id)),
+                "tools/list" => JsonResp(ToolsListResponse(id)),
+                _ => JsonResp("{}")
+            };
+        });
+
+        var config = new McpServerConfig { Name = "accept-test", Transport = "http", Url = "http://localhost" };
+        var transport = new StreamableHttpTransport(config, handler);
+        var client = new McpClient("accept-test", transport);
+
+        await client.ConnectAsync(CancellationToken.None);
+
+        // 每个请求都应声明 Accept: application/json, text/event-stream
+        capturedAccept.Should().Contain("application/json");
+        capturedAccept.Should().Contain("text/event-stream");
+
+        await client.CloseAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task StreamableHttp_SessionId_CapturedAndResent()
+    {
+        var sessionIds = new List<string?>();
+        var handler = new MockHttpMessageHandler(req =>
+        {
+            // 记录每次请求的 Mcp-Session-Id header
+            sessionIds.Add(req.Headers.TryGetValues("Mcp-Session-Id", out var vals) ? vals.FirstOrDefault() : null);
+            var body = req.Content!.ReadAsStringAsync(CancellationToken.None).Result;
+            var (id, method) = ParseRequest(body);
+
+            var resp = method switch
+            {
+                "initialize" => JsonResp(InitResponse(id)),
+                "tools/list" => JsonResp(ToolsListResponse(id)),
+                _ => JsonResp("{}")
+            };
+            // initialize 响应携带 Mcp-Session-Id header
+            if (method == "initialize")
+                resp.Headers.Add("Mcp-Session-Id", "test-session-abc");
+            return resp;
+        });
+
+        var config = new McpServerConfig { Name = "session-test", Transport = "http", Url = "http://localhost" };
+        var transport = new StreamableHttpTransport(config, handler);
+        var client = new McpClient("session-test", transport);
+
+        await client.ConnectAsync(CancellationToken.None);
+
+        // 请求顺序：initialize, initialized(通知), tools/list
+        // 第一个请求（initialize）不应携带 session ID
+        sessionIds[0].Should().BeNull();
+        // 后续请求应携带 server 返回的 session ID
+        sessionIds[1].Should().Be("test-session-abc");
+        sessionIds[2].Should().Be("test-session-abc");
+
+        await client.CloseAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task StreamableHttp_ProtocolVersionHeader_SentAfterInitialize()
+    {
+        var protocolVersions = new List<string?>();
+        var handler = new MockHttpMessageHandler(req =>
+        {
+            protocolVersions.Add(req.Headers.TryGetValues("MCP-Protocol-Version", out var vals) ? vals.FirstOrDefault() : null);
+            var body = req.Content!.ReadAsStringAsync(CancellationToken.None).Result;
+            var (id, method) = ParseRequest(body);
+
+            return method switch
+            {
+                "initialize" => JsonResp(InitResponse(id)),
+                "tools/list" => JsonResp(ToolsListResponse(id)),
+                _ => JsonResp("{}")
+            };
+        });
+
+        var config = new McpServerConfig { Name = "pv-test", Transport = "http", Url = "http://localhost" };
+        var transport = new StreamableHttpTransport(config, handler);
+        var client = new McpClient("pv-test", transport);
+
+        await client.ConnectAsync(CancellationToken.None);
+
+        // 请求顺序：initialize, initialized(通知), tools/list
+        // 第一个请求（initialize）不应携带 MCP-Protocol-Version
+        protocolVersions[0].Should().BeNull();
+        // 后续请求应携带协议版本号
+        protocolVersions[1].Should().Be(McpMethods.ProtocolVersion);
+        protocolVersions[2].Should().Be(McpMethods.ProtocolVersion);
+
+        await client.CloseAsync(CancellationToken.None);
     }
 
     // ===== MCP 配置 =====

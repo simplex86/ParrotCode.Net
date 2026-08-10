@@ -8,31 +8,48 @@ using Microsoft.Extensions.Logging;
 namespace ParrotCode;
 
 /// <summary>
-/// HTTP SSE 传输：POST 发送 JSON-RPC 请求，通过 SSE 流接收响应（迭代 11c）。
+/// Streamable HTTP 传输（MCP 2025-03-26 spec）：单端点 POST /mcp，响应可为 JSON 或 SSE 流。
 ///
+/// 取代已废弃的 HTTP+SSE 双端点传输（GET /sse + POST /messages）。
 /// 用 Channel 解耦收发：
-/// - SendAsync：POST JSON 到 /mcp，根据 Content-Type 决定 SSE 流解析或单次 JSON
+/// - SendAsync：POST JSON-RPC 到 /mcp，根据 Content-Type 决定 SSE 流解析或单次 JSON
 /// - ReceiveAsync：从 Channel 读取已解析的消息
+///
+/// 会话管理：
+/// - 首个请求（initialize）的响应可能携带 Mcp-Session-Id header，后续请求自动回传
+/// - initialize 后的请求携带 MCP-Protocol-Version header（spec 要求）
+/// - 每个请求携带 Accept: application/json, text/event-stream（声明可接受两种响应格式）
 ///
 /// Bearer Token 认证：构造时设置 Authorization 头。
 /// </summary>
-internal sealed class HttpSseTransport : ITransport
+internal sealed class StreamableHttpTransport : ITransport
 {
     private readonly McpServerConfig _config;
     private readonly ILogger? _logger;
     private readonly HttpClient _httpClient;
+    private readonly string _protocolVersion;
     private CancellationTokenSource? _receiveCts;
     private Channel<string>? _receiveChannel;
 
-    public HttpSseTransport(McpServerConfig config, ILogger? logger = null)
-        : this(config, new HttpClientHandler(), logger)
+    // 会话状态
+    private string? _sessionId;
+    private bool _firstRequestSent;
+
+    public StreamableHttpTransport(McpServerConfig config, ILogger? logger = null)
+        : this(config, McpMethods.ProtocolVersion, new HttpClientHandler(), logger)
     {
     }
 
     /// <summary>测试用：注入 HttpMessageHandler 以模拟 HTTP 响应。</summary>
-    internal HttpSseTransport(McpServerConfig config, HttpMessageHandler handler, ILogger? logger = null)
+    internal StreamableHttpTransport(McpServerConfig config, HttpMessageHandler handler, ILogger? logger = null)
+        : this(config, McpMethods.ProtocolVersion, handler, logger)
+    {
+    }
+
+    private StreamableHttpTransport(McpServerConfig config, string protocolVersion, HttpMessageHandler handler, ILogger? logger)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
+        _protocolVersion = protocolVersion;
         _logger = logger;
 
         if (string.IsNullOrWhiteSpace(_config.Url))
@@ -57,7 +74,7 @@ internal sealed class HttpSseTransport : ITransport
         });
 
         // HTTP 传输无需预连接——首个 POST 即建立
-        _logger?.LogInformation("MCP HTTP server [{Name}] 已就绪 ({Url})", _config.Name, _config.Url);
+        _logger?.LogInformation("MCP Streamable HTTP server [{Name}] 已就绪 ({Url})", _config.Name, _config.Url);
         return Task.CompletedTask;
     }
 
@@ -65,9 +82,32 @@ internal sealed class HttpSseTransport : ITransport
     {
         if (_receiveChannel is null) throw new InvalidOperationException("Transport 未连接");
 
-        var content = new StringContent(json, Encoding.UTF8, "application/json");
-        var response = await _httpClient.PostAsync("/mcp", content, cancellationToken);
+        var request = new HttpRequestMessage(HttpMethod.Post, "/mcp")
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        };
+
+        // Accept: 声明可接受 JSON 和 SSE 两种响应格式
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+
+        // Mcp-Session-Id: initialize 后的请求必须回传 server 分配的 session ID
+        if (_sessionId is not null)
+            request.Headers.Add("Mcp-Session-Id", _sessionId);
+
+        // MCP-Protocol-Version: initialize 后的请求应携带协议版本号（spec 2025-03-26 要求）
+        if (_firstRequestSent)
+            request.Headers.Add("MCP-Protocol-Version", _protocolVersion);
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
+
+        // 捕获 Mcp-Session-Id（server 在 initialize 响应中返回，后续请求需回传）
+        if (response.Headers.TryGetValues("Mcp-Session-Id", out var sessionIds))
+            _sessionId = sessionIds.FirstOrDefault();
+
+        // 标记首个请求已发送（后续请求携带 MCP-Protocol-Version）
+        _firstRequestSent = true;
 
         var contentType = response.Content.Headers.ContentType?.MediaType;
 
@@ -100,7 +140,7 @@ internal sealed class HttpSseTransport : ITransport
     {
         _receiveCts?.Cancel();
         _receiveChannel?.Writer.TryComplete();
-        _logger?.LogInformation("MCP HTTP server [{Name}] 已关闭", _config.Name);
+        _logger?.LogInformation("MCP Streamable HTTP server [{Name}] 已关闭", _config.Name);
         return Task.CompletedTask;
     }
 
@@ -137,7 +177,7 @@ internal sealed class HttpSseTransport : ITransport
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            _logger?.LogDebug("MCP HTTP SSE 流结束：{Error}", ex.Message);
+            _logger?.LogDebug("MCP Streamable HTTP SSE 流结束：{Error}", ex.Message);
         }
         // 不调用 writer.TryComplete()——channel 供后续请求复用，仅 CloseAsync 关闭
     }
