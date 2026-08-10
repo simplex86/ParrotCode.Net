@@ -86,10 +86,13 @@ mcp:
   enable: true
   servers:
     # Stdio MCP server 示例：filesystem 服务器
+    # 注意：args 中的路径必须是 server 进程能访问的有效目录。
+    #   Unix: /tmp 或 /home/user/project
+    #   Windows: . (当前目录) 或 d:/projects/myproject（避免 /tmp，Windows 上不存在）
     # - name: filesystem
     #   transport: stdio
     #   command: npx
-    #   args: "-y @modelcontextprotocol/server-filesystem /tmp"
+    #   args: "-y @modelcontextprotocol/server-filesystem ."
     #   # working_dir: /optional/working/directory
     #   # env:
     #   #   NODE_OPTIONS: "--max-old-space-size=4096"

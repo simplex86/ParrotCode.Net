@@ -99,11 +99,13 @@ internal sealed class App
 
         // 【迭代 11c】构造 McpConnectionManager（MCP 客户端）
         // enable: false 时不构造（TerminalApp 用 null）
+        // TUI 模式 logger 传 null（硬约束：避免 stderr 日志在 Terminal.Gui 初始化前闪现到终端）
+        // 连接结果通过 mcpManager.ConnectionResults 在 TUI 中显示
         var mcpConfig = _config.Mcp ?? new McpConfig();
         McpConnectionManager? mcpManager = null;
         if (mcpConfig.Enable ?? true)
         {
-            mcpManager = new McpConnectionManager((mcpConfig.Servers ?? Array.Empty<McpServerConfig>()).ToArray(), _logger);
+            mcpManager = new McpConnectionManager((mcpConfig.Servers ?? Array.Empty<McpServerConfig>()).ToArray(), logger: null);
             // 并行连接所有 MCP server，工具适配器收集到 mcpManager.Adapters
             // TerminalApp.RunAsync 中统一注册到主 ToolRegistry
             await mcpManager.ConnectAllAsync(_ct);

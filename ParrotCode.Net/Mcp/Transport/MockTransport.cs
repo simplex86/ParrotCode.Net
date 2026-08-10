@@ -55,6 +55,9 @@ internal sealed class MockTransport : ITransport
         return ValueTask.CompletedTask;
     }
 
+    /// <summary>Mock 传输无 stderr，返回 null。</summary>
+    public string? GetErrorContext() => null;
+
     // ===== 测试辅助方法 =====
 
     /// <summary>

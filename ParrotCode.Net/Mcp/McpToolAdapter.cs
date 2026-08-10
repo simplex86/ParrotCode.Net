@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 
 namespace ParrotCode;
@@ -8,7 +9,9 @@ namespace ParrotCode;
 /// 把 MCP server 暴露的单个工具包装成 IBaseTool，注册到 ToolRegistry，
 /// AgentLoop 和 BatchToolExecutor 透明调用（不感知 MCP vs 内置）。
 ///
-/// 工具名前缀：{serverName}/{toolName}，防多 server 冲突。
+/// 工具名前缀：{serverName}-{toolName}，防多 server 冲突。
+/// 使用 '-' 作为分隔符：MCP 工具名通常是 snake_case（含 '_'），几乎不含 '-'，
+/// 因此 '-' 分隔比 '__' 更不易产生歧义。满足 OpenAI API 命名规则 ^[a-zA-Z0-9_-]+$。
 /// Category 判定：根据 MCP annotations.readOnlyHint，无注解默认 Write（安全优先）。
 /// </summary>
 public sealed class McpToolAdapter : IBaseTool
@@ -19,9 +22,11 @@ public sealed class McpToolAdapter : IBaseTool
     private IReadOnlyList<ToolParameter>? _parameters;
 
     /// <summary>
-    /// 全局工具名（含 server 前缀）：{serverName}/{toolName}。
+    /// 全局工具名（含 server 前缀）：{sanitizedServerName}-{sanitizedToolName}。
+    /// '-' 分隔（工具名 snake_case 不含 '-'，歧义概率低），
+    /// 非 [a-zA-Z0-9_-] 字符替换为 '_'，满足 OpenAI/Anthropic API 命名约束。
     /// </summary>
-    public string Name => $"{_client.ServerName}/{_toolInfo.Name}";
+    public string Name => $"{Sanitize(_client.ServerName)}-{Sanitize(_toolInfo.Name)}";
 
     public string Description => _toolInfo.Description;
 
@@ -143,4 +148,12 @@ public sealed class McpToolAdapter : IBaseTool
         }
         return parameters;
     }
+
+    /// <summary>
+    /// 将名称中非 [a-zA-Z0-9_-] 的字符替换为 '_'，满足 OpenAI API 工具命名规则。
+    /// </summary>
+    private static string Sanitize(string name)
+        => s_invalidChars.Replace(name, "_");
+
+    private static readonly Regex s_invalidChars = new(@"[^a-zA-Z0-9_-]", RegexOptions.Compiled);
 }

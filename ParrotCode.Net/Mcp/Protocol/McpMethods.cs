@@ -18,7 +18,7 @@ internal static class McpMethods
 /// </summary>
 internal sealed record McpInitializeParams
 {
-    public string ProtocolVersion { get; init; } = "2025-03-26";
+    public string ProtocolVersion { get; init; } = "2025-06-18";
     public McpClientCapabilities Capabilities { get; init; } = new();
     public McpClientInfo ClientInfo { get; init; } = new();
 }

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 
 namespace ParrotCode;
@@ -14,7 +15,15 @@ internal sealed class JsonRpc
     private int _nextId = 0;
     private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonElement>> _pending = new();
     private readonly ILogger? _logger;
-    private static readonly JsonSerializerOptions s_camelCase = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+    // DefaultIgnoreCondition.WhenWritingNull: params 为 null 时省略该字段，
+    // 而非输出 "params":null。MCP SDK 的 Zod schema 用 .optional() 验证 params，
+    // 接受字段缺失（undefined）但不接受 null，"params":null 会导致消息被当作
+    // "Unknown message type" 忽略，server 永远不进入 initialized 状态。
+    private static readonly JsonSerializerOptions s_camelCase = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
 
     public JsonRpc(ILogger? logger = null) => _logger = logger;
 
@@ -56,44 +65,59 @@ internal sealed class JsonRpc
     /// 处理从 transport 收到的 JSON 消息，按类型分发。
     /// - 有 id 且有 result/error → 响应，匹配到 pending TCS
     /// - 有 method 无 id → 通知（本迭代不处理，记日志）
+    ///
+    /// 容错：npx 等包装器可能往 stdout 打印非 JSON 内容（安装进度等），
+    /// 直接忽略非 JSON 行，避免崩溃接收循环导致后续请求无人读取（超时）。
     /// </summary>
     public void HandleMessage(string json)
     {
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
-
-        // 有 id 且有 result/error → 响应
-        if (root.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.Number)
+        JsonDocument doc;
+        try
         {
-            var id = idEl.GetInt32();
-            if (_pending.TryRemove(id, out var tcs))
+            doc = JsonDocument.Parse(json);
+        }
+        catch (JsonException)
+        {
+            _logger?.LogWarning("收到非 JSON 行，忽略（可能来自 npx 等包装器）：{Preview}", json.Length > 200 ? json[..200] + "..." : json);
+            return;
+        }
+        using (doc)
+        {
+            var root = doc.RootElement;
+
+            // 有 id 且有 result/error → 响应
+            if (root.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.Number)
             {
-                if (root.TryGetProperty("error", out var error))
+                var id = idEl.GetInt32();
+                if (_pending.TryRemove(id, out var tcs))
                 {
-                    var message = error.TryGetProperty("message", out var msgEl) ? msgEl.GetString() ?? "Unknown error" 
-                                                                                 : "Unknown error";
-                    var code = error.TryGetProperty("code", out var codeEl) ? codeEl.GetInt32() : -1;
-                    tcs.SetException(new JsonRpcException(code, message));
-                }
-                else if (root.TryGetProperty("result", out var result))
-                {
-                    tcs.SetResult(result.Clone());
+                    if (root.TryGetProperty("error", out var error))
+                    {
+                        var message = error.TryGetProperty("message", out var msgEl) ? msgEl.GetString() ?? "Unknown error"
+                                                                                     : "Unknown error";
+                        var code = error.TryGetProperty("code", out var codeEl) ? codeEl.GetInt32() : -1;
+                        tcs.SetException(new JsonRpcException(code, message));
+                    }
+                    else if (root.TryGetProperty("result", out var result))
+                    {
+                        tcs.SetResult(result.Clone());
+                    }
+                    else
+                    {
+                        tcs.SetException(new JsonRpcException(-1, "响应缺少 result 和 error 字段"));
+                    }
                 }
                 else
                 {
-                    tcs.SetException(new JsonRpcException(-1, "响应缺少 result 和 error 字段"));
+                    _logger?.LogWarning("收到未知 id={Id} 的 JSON-RPC 响应", id);
                 }
             }
-            else
+            // 有 method 无 id → 通知
+            else if (root.TryGetProperty("method", out _))
             {
-                _logger?.LogWarning("收到未知 id={Id} 的 JSON-RPC 响应", id);
+                // 本迭代不处理 Server → Client 通知（如 tools/list_changed）
+                _logger?.LogDebug("收到 JSON-RPC 通知，暂不处理：{Json}", json);
             }
-        }
-        // 有 method 无 id → 通知
-        else if (root.TryGetProperty("method", out _))
-        {
-            // 本迭代不处理 Server → Client 通知（如 tools/list_changed）
-            _logger?.LogDebug("收到 JSON-RPC 通知，暂不处理：{Json}", json);
         }
     }
 

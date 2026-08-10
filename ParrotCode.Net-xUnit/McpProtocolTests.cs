@@ -58,14 +58,16 @@ public class McpProtocolTests
     }
 
     [Fact]
-    public void CreateRequest_ParamsNull_ContainsNullParamsField()
+    public void CreateRequest_ParamsNull_OmitsParamsField()
     {
+        // params 为 null 时应省略 params 字段（而非输出 "params":null）。
+        // MCP SDK 的 Zod schema 用 .optional() 验证，接受字段缺失但不接受 null。
+        // "params":null 会导致消息验证失败，被当作 "Unknown message type" 忽略。
         var rpc = CreateRpc();
         var (json, _) = rpc.CreateRequest("ping", null);
 
         using var doc = JsonDocument.Parse(json);
-        doc.RootElement.TryGetProperty("params", out var paramsEl).Should().BeTrue();
-        paramsEl.ValueKind.Should().Be(JsonValueKind.Null);
+        doc.RootElement.TryGetProperty("params", out _).Should().BeFalse();
     }
 
     [Fact]
@@ -200,6 +202,37 @@ public class McpProtocolTests
         var act = () => rpc.HandleMessage("""{"jsonrpc":"2.0","method":"tools/list_changed"}""");
 
         act.Should().NotThrow();
+    }
+
+    // ===== HandleMessage 非 JSON 容错 =====
+
+    [Fact]
+    public void HandleMessage_NonJsonLineDoesNotThrow()
+    {
+        // npx 等包装器可能往 stdout 打印非 JSON 内容（安装进度等），
+        // HandleMessage 应忽略而非抛异常，否则会崩溃接收循环导致超时。
+        var rpc = CreateRpc();
+        var (_, task) = rpc.CreateRequest("initialize");
+
+        var act = () => rpc.HandleMessage("Installing @modelcontextprotocol/server-filesystem...");
+
+        act.Should().NotThrow();
+        task.IsCompleted.Should().BeFalse();  // pending 请求不受影响
+    }
+
+    [Fact]
+    public async Task HandleMessage_NonJsonThenValidResponse_StillMatches()
+    {
+        // 非 JSON 行被忽略后，后续有效响应仍能正确匹配到 pending 请求
+        var rpc = CreateRpc();
+        var (_, task) = rpc.CreateRequest("initialize");
+
+        rpc.HandleMessage("npx: installed 1 package in 2s");
+        rpc.HandleMessage(MakeResponse(1, new { protocolVersion = "2025-06-18" }));
+
+        task.IsCompleted.Should().BeTrue();
+        var result = await task;
+        result.GetProperty("protocolVersion").GetString().Should().Be("2025-06-18");
     }
 
     // ===== CancelAllPending =====

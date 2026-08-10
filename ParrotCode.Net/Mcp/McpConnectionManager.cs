@@ -4,7 +4,7 @@ namespace ParrotCode;
 
 /// <summary>
 /// MCP 连接管理器：并行连接所有配置的 MCP server，管理生命周期（迭代 11c）。
-/// 单个 server 连接失败不阻塞其他——记日志，跳过该 server。
+/// 单个 server 连接失败不阻塞其他——记录到 ConnectionResults，跳过该 server。
 ///
 /// 职责：
 /// 1. 启动时并行连接所有 server（Task.WhenAll）
@@ -17,6 +17,12 @@ internal sealed class McpConnectionManager : IAsyncDisposable
     private readonly ILogger? _logger;
     private readonly List<McpClient> _clients = new();
     private readonly List<McpToolAdapter> _adapters = new();
+    private readonly List<ConnectionResult> _connectionResults = new();
+
+    /// <summary>
+    /// 每个 server 的连接结果（成功/失败 + 错误信息），供 TUI 显示。
+    /// </summary>
+    public IReadOnlyList<ConnectionResult> ConnectionResults => _connectionResults;
 
     public McpConnectionManager(IReadOnlyList<McpServerConfig> serverConfigs, ILogger? logger = null)
     {
@@ -69,10 +75,11 @@ internal sealed class McpConnectionManager : IAsyncDisposable
 
     private async Task ConnectOneAsync(McpServerConfig config, CancellationToken cancellationToken)
     {
+        ITransport? transport = null;
         try
         {
             // 创建 transport
-            ITransport transport = config.Transport switch
+            transport = config.Transport switch
             {
                 "stdio" => new StdioTransport(config, _logger),
                 "http" or "sse" => new HttpSseTransport(config, _logger),
@@ -91,10 +98,28 @@ internal sealed class McpConnectionManager : IAsyncDisposable
             }
 
             _clients.Add(client);
+            _connectionResults.Add(new ConnectionResult(config.Name, true, client.Tools.Count, null));
         }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "MCP server [{Name}] 连接失败，跳过", config.Name);
+
+            // 拼接 transport 诊断信息（如子进程 stderr）到错误消息，帮助定位 server 启动失败原因
+            var stderr = transport?.GetErrorContext();
+            var errorMsg = string.IsNullOrWhiteSpace(stderr)
+                ? ex.Message
+                : $"{ex.Message}\n  server stderr:\n{stderr}";
+
+            _connectionResults.Add(new ConnectionResult(config.Name, false, 0, errorMsg));
+        }
+        finally
+        {
+            // 连接失败时 transport 未被 McpClient 接管，需在此释放避免泄漏
+            // 连接成功时 client 已加入 _clients（McpClient.DisposeAsync 会释放 transport），跳过
+            if (transport is not null && !_clients.Any(c => c.ServerName == config.Name))
+            {
+                try { await transport.DisposeAsync(); } catch { }
+            }
         }
     }
 
@@ -143,3 +168,8 @@ internal sealed class McpConnectionManager : IAsyncDisposable
         await CloseAllAsync(CancellationToken.None);
     }
 }
+
+/// <summary>
+/// 单个 MCP server 的连接结果。
+/// </summary>
+internal sealed record ConnectionResult(string ServerName, bool Success, int ToolCount, string? ErrorMessage);

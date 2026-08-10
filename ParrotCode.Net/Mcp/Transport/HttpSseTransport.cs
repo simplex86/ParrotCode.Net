@@ -149,4 +149,7 @@ internal sealed class HttpSseTransport : ITransport
         _httpClient.Dispose();
         return ValueTask.CompletedTask;
     }
+
+    /// <summary>HTTP 传输无 stderr，返回 null。</summary>
+    public string? GetErrorContext() => null;
 }

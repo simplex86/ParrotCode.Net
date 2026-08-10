@@ -26,4 +26,11 @@ internal interface ITransport : IAsyncDisposable
     /// 关闭传输（发送关闭通知 + 关闭连接/进程）。
     /// </summary>
     Task CloseAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// 获取传输层的错误诊断信息（如子进程 stderr 输出）。
+    /// 连接失败时上层调用此方法，将诊断信息拼入错误消息展示给用户。
+    /// 无诊断信息时返回 null。
+    /// </summary>
+    string? GetErrorContext();
 }

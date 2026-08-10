@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.Extensions.Logging;
 using Terminal.Gui;
 using Attribute = Terminal.Gui.Attribute;
@@ -25,6 +26,7 @@ internal sealed class TerminalApp : IUiControl, IDisposable
     private readonly string _instructionSummary;       // 10c 新增：指令概要（/status 用）
     private readonly string _systemPromptWithInstructions;  // 10c 新增：含指令的 system prompt
     private readonly McpConnectionManager? _mcpManager;  // 11c 新增：MCP 连接管理器
+    private string? _mcpStartupInfo;  // MCP 连接状态，待 ChatView 创建后显示
     private readonly ILogger? _logger;
     private readonly CancellationToken _ct;
 
@@ -121,6 +123,9 @@ internal sealed class TerminalApp : IUiControl, IDisposable
             }
         }
 
+        // 记录 MCP 连接状态，待 ChatView 创建后显示
+        _mcpStartupInfo = BuildMcpStartupInfo();
+
         _history = new ConversationHistory();
 
         // 2. Terminal.Gui 初始化
@@ -136,6 +141,10 @@ internal sealed class TerminalApp : IUiControl, IDisposable
 
         // 3. 构建三段式布局（创建 _spinner, _inputFieldView 等）
         BuildLayout();
+
+        // 3.5 显示 MCP 连接状态（如有）
+        if (_mcpStartupInfo is not null)
+            _chatView!.AppendStaticMessage(_mcpStartupInfo);
 
         // 4. 装配 HITL（7c-3：内联提示，不用模态 Dialog）
         //    UI 回调引用 _spinner 等，需在 BuildLayout 之后创建
@@ -192,8 +201,8 @@ internal sealed class TerminalApp : IUiControl, IDisposable
             Width = Dim.Fill(),
             Height = Dim.Fill(3)  // 底部预留 3 行（Spinner 状态行 + 分割线 + 输入框）
         };
-        _chatView.AppendStaticMessage("ParrotCode.Net Terminal 模式（10a 命令系统）");
-        _chatView.AppendStaticMessage("输入消息开始对话，/help 查看命令，/exit 退出");
+        //_chatView.AppendStaticMessage("ParrotCode.Net Terminal 模式（10a 命令系统）");
+        //_chatView.AppendStaticMessage("输入消息开始对话，/help 查看命令，/exit 退出");
 
         // 7c-3：Spinner 状态行（独立 1 行，不叠加在 ChatView 上，避免覆盖对话内容）
         // 工具执行时显示 "Thinking ⠋" 动画，不执行时 Text 为空（占位但不重绘内容）
@@ -343,6 +352,27 @@ internal sealed class TerminalApp : IUiControl, IDisposable
 
         // 启动 AgentLoop
         StartAgentRound();
+    }
+
+    /// <summary>
+    /// 构建 MCP 连接状态信息（供 ChatView 启动时显示）。
+    /// </summary>
+    private string? BuildMcpStartupInfo()
+    {
+        if (_mcpManager is null) return null;
+        var results = _mcpManager.ConnectionResults;
+        if (results.Count == 0) return null;
+
+        var sb = new StringBuilder();
+        sb.Append("MCP: ");
+        foreach (var r in results)
+        {
+            if (r.Success)
+                sb.Append($"{r.ServerName}({r.ToolCount} tools) ");
+            else
+                sb.Append($"{r.ServerName}(失败: {r.ErrorMessage}) ");
+        }
+        return sb.ToString().TrimEnd();
     }
 
     /// <summary>

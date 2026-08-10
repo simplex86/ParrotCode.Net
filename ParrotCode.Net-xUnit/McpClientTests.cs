@@ -149,7 +149,7 @@ public class McpClientTests
         // 第一条发送的消息是 initialize 请求
         var sentInit = await transport.GetLastSentAsync(CancellationToken.None);
         sentInit.Should().Contain("\"method\":\"initialize\"");
-        sentInit.Should().Contain("\"protocolVersion\":\"2025-03-26\"", "MCP 协议要求 camelCase");
+        sentInit.Should().Contain("\"protocolVersion\":\"2025-06-18\"", "MCP 协议要求 camelCase");
 
         await client.CloseAsync(CancellationToken.None);
     }
@@ -469,7 +469,24 @@ public class McpClientTests
     public void Adapter_Name_HasServerPrefix()
     {
         var adapter = CreateAdapter("filesystem", "read_file");
-        adapter.Name.Should().Be("filesystem/read_file");
+        adapter.Name.Should().Be("filesystem-read_file");
+    }
+
+    [Fact]
+    public void Adapter_Name_MatchesOpenAiApiPattern()
+    {
+        // OpenAI API 工具名必须匹配 ^[a-zA-Z0-9_-]+$
+        var adapter = CreateAdapter("filesystem", "read_file");
+        adapter.Name.Should().MatchRegex(@"^[a-zA-Z0-9_-]+$");
+    }
+
+    [Fact]
+    public void Adapter_Name_SanitizesInvalidChars()
+    {
+        // serverName 含 '.' 等非法字符时应被替换为 '_'
+        var adapter = CreateAdapter("my.server", "echo_string");
+        adapter.Name.Should().Be("my_server-echo_string");
+        adapter.Name.Should().MatchRegex(@"^[a-zA-Z0-9_-]+$");
     }
 
     [Fact]
@@ -589,7 +606,7 @@ public class McpClientTests
         var result = await adapter.ExecuteAsync(EmptyArgs(), CancellationToken.None);
 
         result.Success.Should().BeFalse();
-        result.Error.Should().Contain("MCP 工具 srv/tool 调用失败");
+        result.Error.Should().Contain("MCP 工具 srv-tool 调用失败");
         result.Error.Should().Contain("Method not found");
 
         await client.CloseAsync(CancellationToken.None);
@@ -626,7 +643,7 @@ public class McpClientTests
 
         var schema = adapter.ToOpenAiSchema();
 
-        schema.GetProperty("function").GetProperty("name").GetString().Should().Be("filesystem/read_file");
+        schema.GetProperty("function").GetProperty("name").GetString().Should().Be("filesystem-read_file");
         schema.GetProperty("type").GetString().Should().Be("function");
     }
 
@@ -637,7 +654,7 @@ public class McpClientTests
 
         var schema = adapter.ToAnthropicSchema();
 
-        schema.GetProperty("name").GetString().Should().Be("filesystem/read_file");
+        schema.GetProperty("name").GetString().Should().Be("filesystem-read_file");
         schema.TryGetProperty("input_schema", out _).Should().BeTrue();
     }
 
