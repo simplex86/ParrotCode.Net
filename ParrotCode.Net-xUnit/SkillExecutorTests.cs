@@ -106,4 +106,34 @@ public class SkillExecutorTests
         exec.GetActive().Should().HaveCount(1);
         exec.GetActive()[0].Meta.Name.Should().Be("a");
     }
+
+    // ---- 迭代 13b：GetAll ----
+
+    [Fact]
+    public void GetAll_ReturnsAllSkillsIncludingInactive()
+    {
+        var exec = MakeExecutor(MakeSkill("a"), MakeSkill("b"), MakeSkill("c"));
+        exec.Activate("a");
+
+        var all = exec.GetAll();
+        all.Should().HaveCount(3);
+        all.Select(d => d.Meta.Name).Should().Contain(new[] { "a", "b", "c" });
+    }
+
+    [Fact]
+    public void GetAll_NoSkills_ReturnsEmpty()
+    {
+        var exec = MakeExecutor();
+        exec.GetAll().Should().BeEmpty();
+    }
+
+    [Fact]
+    public void GetAll_DiffersFromGetActive()
+    {
+        var exec = MakeExecutor(MakeSkill("a"), MakeSkill("b"));
+        exec.Activate("a");
+
+        exec.GetAll().Should().HaveCount(2);
+        exec.GetActive().Should().HaveCount(1);
+    }
 }

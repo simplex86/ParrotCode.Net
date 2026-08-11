@@ -32,6 +32,11 @@ public sealed class SkillExecutor
     public IReadOnlyList<SkillDefinition> GetActive() => _registry.GetActiveSkills();
 
     /// <summary>
+    /// 所有已加载 Skill 的快照（迭代 13b 新增，/skill list 用）。
+    /// </summary>
+    public IReadOnlyCollection<SkillDefinition> GetAll() => _registry.GetAll();
+
+    /// <summary>
     /// 是否处于激活状态。
     /// </summary>
     public bool IsActive(string name) => _registry.IsActive(name);
