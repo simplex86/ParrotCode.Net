@@ -26,6 +26,8 @@ internal sealed class TerminalApp : IUiControl, IDisposable
     private readonly string _instructionSummary;       // 10c 新增：指令概要（/status 用）
     private readonly string _systemPromptWithInstructions;  // 10c 新增：含指令的 system prompt
     private readonly McpConnectionManager? _mcpManager;  // 11c 新增：MCP 连接管理器
+    private readonly SkillRegistry? _skillRegistry;  // 迭代 12 新增：Skill 注册表
+    private readonly SkillExecutor? _skillExecutor;  // 迭代 12 新增：Skill 执行器
     private string? _mcpStartupInfo;  // MCP 连接状态，待 ChatView 创建后显示
     private readonly ILogger? _logger;
     private readonly CancellationToken _ct;
@@ -60,6 +62,8 @@ internal sealed class TerminalApp : IUiControl, IDisposable
                        SessionStore? sessionStore,    // 10b 新增
                        InstructionResult? instructions,  // 10c 新增
                        McpConnectionManager? mcpManager,  // 11c 新增
+                       SkillRegistry? skillRegistry,      // 迭代 12 新增
+                       SkillExecutor? skillExecutor,      // 迭代 12 新增
                        ILogger? logger,
                        CancellationToken ct)
     {
@@ -73,14 +77,22 @@ internal sealed class TerminalApp : IUiControl, IDisposable
         _sessionStore = sessionStore;
         _instructions = instructions ?? new InstructionResult();
         _mcpManager = mcpManager;
+        _skillRegistry = skillRegistry;
+        _skillExecutor = skillExecutor;
         _logger = logger;
         _ct = ct;
 
         // 10c：拼接 system prompt（默认 prompt + 项目指令）
+        // 迭代 12：追加 Skill 摘要（Phase 1）
         var basePrompt = !string.IsNullOrWhiteSpace(_agentConfig.SystemPrompt) ? _agentConfig.SystemPrompt!
                                                                                : DefaultSystemPrompt;
-        _systemPromptWithInstructions = _instructions.HasInstructions ? basePrompt + "\n\n## 项目指令\n" + _instructions.Content
-                                                                      : basePrompt;
+        var withInstructions = _instructions.HasInstructions ? basePrompt + "\n\n## 项目指令\n" + _instructions.Content
+                                                              : basePrompt;
+        // 迭代 12：Phase 1 — Skill 摘要注入 system prompt
+        var skillSummary = _skillRegistry?.GetSummary() ?? string.Empty;
+        _systemPromptWithInstructions = !string.IsNullOrEmpty(skillSummary)
+            ? withInstructions + "\n\n" + skillSummary
+            : withInstructions;
         _instructionSummary = InstructionLoader.GetSummary(_instructions);
 
         // 10a 新增：构造命令系统
@@ -124,6 +136,12 @@ internal sealed class TerminalApp : IUiControl, IDisposable
                     _logger?.LogWarning(ex, "MCP 工具注册失败（名称冲突）：{Name}", adapter.Name);
                 }
             }
+        }
+
+        // 【迭代 12】注册 skill_loader 工具
+        if (_skillRegistry is not null)
+        {
+            _registry.Register(new SkillTool(_skillRegistry));
         }
 
         // 记录 MCP 连接状态，待 ChatView 创建后显示
@@ -341,7 +359,17 @@ internal sealed class TerminalApp : IUiControl, IDisposable
             if (dispatchResult.Output is not null)
                 _chatView!.AppendStaticMessage(dispatchResult.Output);
             if (dispatchResult.ExitApp)
+            {
                 Application.RequestStop(_top!);
+                return;
+            }
+            // 迭代 12：命令请求启动 Agent round（如 /commit）
+            if (dispatchResult.StartAgent)
+            {
+                _statusBarView!.CurrentRound = 0;
+                _statusBarView!.EstimatedTokens = _history!.EstimatedTokens;
+                StartAgentRound();
+            }
             return;
         }
 
@@ -393,6 +421,7 @@ internal sealed class TerminalApp : IUiControl, IDisposable
         AgentConfig = _agentConfig,
         InstructionSummary = _instructionSummary,  // 10c 填充
         McpSummary = _mcpManager?.GetStatusSummary(),  // 11c 填充
+        SkillExecutor = _skillExecutor,  // 迭代 12 填充
     };
 
     /// <summary>

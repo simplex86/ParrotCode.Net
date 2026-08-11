@@ -21,4 +21,9 @@
     <InternalsVisibleTo Include="ParrotCode.Net-xUnit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- 迭代 12：Builtin Skill 文件部署到输出目录（跨平台用 Path.Combine 定位） -->
+    <Content Include="Skills\Builtin\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

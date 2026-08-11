@@ -111,6 +111,23 @@ internal sealed class App
             await mcpManager.ConnectAllAsync(_ct);
         }
 
+        // 【迭代 12】构造 Skill 系统（Loader 三级扫描 + Registry + Executor）
+        // enable: false 时不构造（/commit 返回"未启用"，skill_loader 不注册）
+        var skillConfig = _config.Skills ?? new SkillConfig();
+        SkillRegistry? skillRegistry = null;
+        SkillExecutor? skillExecutor = null;
+        if (skillConfig.Enable ?? true)
+        {
+            var skillLoader = new SkillLoader(projectRoot: projectRoot, logger: _logger);
+            var skills = skillLoader.Load();
+            skillRegistry = new SkillRegistry(skills,
+                                             maxActive: skillConfig.MaxActiveSkills ?? 3,
+                                             logger: _logger);
+            skillExecutor = new SkillExecutor(skillRegistry);
+            if (skills.Count > 0)
+                _logger.LogInformation("已加载 {Count} 个 Skill", skills.Count);
+        }
+
         using var terminalApp = new TerminalApp(_provider,
                                                 _providerConfig,
                                                 _config.Agent,
@@ -121,6 +138,8 @@ internal sealed class App
                                                 sessionStore,
                                                 instructions,         // 10c 新增
                                                 mcpManager,           // 11c 新增
+                                                skillRegistry,        // 迭代 12 新增
+                                                skillExecutor,        // 迭代 12 新增
                                                 _logger,
                                                 _ct);
         await terminalApp.RunAsync();

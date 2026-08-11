@@ -41,6 +41,11 @@ public sealed record CommandContext(
     public string? McpSummary { get; init; }
 
     /// <summary>
+    /// Skill 执行器（迭代 12 新增，/commit 用）。null 表示 Skill 系统未启用。
+    /// </summary>
+    public SkillExecutor? SkillExecutor { get; init; }
+
+    /// <summary>
     /// 原始输入行（含 / 前缀，便于错误提示引用与参数解析）。
     /// </summary>
     public string RawInput { get; init; } = string.Empty;

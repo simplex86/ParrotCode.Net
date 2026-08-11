@@ -102,3 +102,8 @@ mcp:
     #   transport: streamable-http
     #   url: https://mcp.example.com/mcp
     #   api_key: ${MCP_API_KEY}
+
+# 迭代 12 新增：Skill 系统（可编程 SOP）
+skills:
+  enable: true                     # 是否启用 Skill 系统（false 时 skill_loader 不注册，/commit 返回"未启用"）
+  max_active_skills: 3            # 同时激活的 Skill 上限

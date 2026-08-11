@@ -64,6 +64,23 @@ public sealed record AppConfig
     /// MCP 客户端配置（迭代 11 新增）。null 时用默认值。
     /// </summary>
     public McpConfig? Mcp { get; init; }
+
+    /// <summary>
+    /// Skill 系统配置（迭代 12 新增）。null 时用默认值。
+    /// </summary>
+    public SkillConfig? Skills { get; init; }
+}
+
+/// <summary>
+/// Skill 系统配置（迭代 12 新增）。所有字段可选，缺省用默认值。
+/// </summary>
+public sealed record SkillConfig
+{
+    /// <summary>是否启用 Skill 系统。默认 true。false 时 skill_loader 不注册，/commit 返回"未启用"。</summary>
+    public bool? Enable { get; init; }
+
+    /// <summary>同时激活的 Skill 上限。默认 3。防止 LLM 激活过多 Skill 污染上下文。</summary>
+    public int? MaxActiveSkills { get; init; }
 }
 
 /// <summary>
