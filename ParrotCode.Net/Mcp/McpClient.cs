@@ -150,7 +150,10 @@ internal sealed class McpClient : IAsyncDisposable
                 _rpc.HandleMessage(message);
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) 
+        { 
+        
+        }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "MCP client [{Name}] 接收循环异常", _serverName);

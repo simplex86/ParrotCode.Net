@@ -7,7 +7,9 @@ namespace ParrotCode;
 /// </summary>
 internal static class McpMethods
 {
-    /// <summary>MCP 协议版本（Streamable HTTP 传输在 initialize 后的请求需通过 MCP-Protocol-Version header 携带）。</summary>
+    /// <summary>
+    /// MCP 协议版本（Streamable HTTP 传输在 initialize 后的请求需通过 MCP-Protocol-Version header 携带）。
+    /// </summary>
     public const string ProtocolVersion = "2025-06-18";
 
     public const string Initialize = "initialize";
@@ -33,7 +35,7 @@ internal sealed record McpClientCapabilities
 
 internal sealed record McpClientInfo
 {
-    public string Name { get; init; } = "ParrotCode.Net";
+    public string Name { get; init; } = "Parrot Code";
     public string Version { get; init; } = "0.11.0";
 }
 

@@ -106,9 +106,8 @@ internal sealed class McpConnectionManager : IAsyncDisposable
 
             // 拼接 transport 诊断信息（如子进程 stderr）到错误消息，帮助定位 server 启动失败原因
             var stderr = transport?.GetErrorContext();
-            var errorMsg = string.IsNullOrWhiteSpace(stderr)
-                ? ex.Message
-                : $"{ex.Message}\n  server stderr:\n{stderr}";
+            var errorMsg = string.IsNullOrWhiteSpace(stderr) ? ex.Message
+                                                             : $"{ex.Message}\n  server stderr:\n{stderr}";
 
             _connectionResults.Add(new ConnectionResult(config.Name, false, 0, errorMsg));
         }

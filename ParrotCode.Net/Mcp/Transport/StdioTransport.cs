@@ -84,7 +84,10 @@ internal sealed class StdioTransport : ITransport
                     }
                 }
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException) 
+            { 
+
+            }
             catch (Exception ex)
             {
                 _logger?.LogDebug("MCP server [{Name}] stderr 读取结束：{Error}", _config.Name, ex.Message);
@@ -228,22 +231,25 @@ internal sealed class StdioTransport : ITransport
 
         // 2. 在常见 Node.js 安装目录中查找（fallback）
         // Windows 上 Node.js 可能安装但未加入进程 PATH（终端在安装前已打开等）
-        var fallbackDirs = new[]
+        if (OperatingSystem.IsWindows())
         {
-            @"C:\Program Files\nodejs",
-            @"C:\Program Files (x86)\nodejs",
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "nodejs"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "npm"),
-        };
-
-        foreach (var dir in fallbackDirs)
-        {
-            try
+            var fallbackDirs = new[]
             {
-                var full = Path.Combine(dir, fileName);
-                if (File.Exists(full)) return (full, dir);
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "nodejs"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "nodejs"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "nodejs"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "npm"),
+            };
+
+            foreach (var dir in fallbackDirs)
+            {
+                try
+                {
+                    var full = Path.Combine(dir, fileName);
+                    if (File.Exists(full)) return (full, dir);
+                }
+                catch { }
             }
-            catch { }
         }
 
         return (null, null);

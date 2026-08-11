@@ -174,7 +174,10 @@ internal sealed class StreamableHttpTransport : ITransport
             if (currentData is not null)
                 await writer.WriteAsync(currentData, ct);
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) 
+        { 
+        
+        }
         catch (Exception ex)
         {
             _logger?.LogDebug("MCP Streamable HTTP SSE 流结束：{Error}", ex.Message);
