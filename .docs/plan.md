@@ -23,7 +23,7 @@
 | 日志 | `print` | `Microsoft.Extensions.Logging` | 控制台 + 文件双 sink |
 | 单元测试 | 暂无 | `xUnit` + `FluentAssertions` | 每个 Agent 模块配测试 |
 
-## 二、总体路线图（14 个迭代）
+## 二、总体路线图（15 个迭代）
 
 ```
 迭代 1  项目脚手架 + 最小可跑（Hello Agent）
@@ -38,11 +38,12 @@
 迭代 10 斜杠命令 + 会话持久化（JSONL）+ 项目指令
 迭代 11 MCP 协议客户端（Stdio + HTTP SSE）
 迭代 12 Skill 系统
-迭代 13 子 Agent
-迭代 14 Hook 引擎
+迭代 13 Skill 目录化与三层加载
+迭代 14 子 Agent
+迭代 15 Hook 引擎
 ```
 
-> 说明：MewCode 的 Team 编排、Git Worktree 隔离、自动笔记三个子系统作为 **可选扩展** 放在计划末尾，不强制实现，等前 14 个迭代跑通后再决定是否引入。
+> 说明：MewCode 的 Team 编排、Git Worktree 隔离、自动笔记三个子系统作为 **可选扩展** 放在计划末尾，不强制实现，等前 15 个迭代跑通后再决定是否引入。
 
 每个迭代遵循统一结构：
 - **学习目标**：本阶段掌握的 Agent 概念 / .NET 技巧。
@@ -529,7 +530,50 @@ Skills/
 
 ---
 
-## 迭代 13：子 Agent
+## 迭代 13：Skill 目录化与三层加载
+
+### 学习目标
+- Skill 从单文件升级为目录结构，支持 `scripts/` / `references/` / `assets/` 三层按需加载。
+
+### 交付物
+- SkillLoader 目录扫描改造 + 三层加载机制（Phase 3 按需）+ 向后兼容单文件。
+
+### 影响文件
+```
+Skills/
+├── Loader.cs                  # 扫描 <name>/SKILL.md 目录而非单文件
+├── Models.cs                  # SkillDefinition 加 SkillDir + SkillResources
+├── SkillTool.cs               # SOP 注入时附上资源清单 + 绝对路径
+└── Builtin/
+    ├── commit/                # 升级为目录（SKILL.md + 可选子目录）
+    │   └── SKILL.md
+    ├── review/
+    │   └── SKILL.md
+    └── test/
+        └── SKILL.md
+```
+
+### 关键设计点
+- **Skill 目录结构**：`<name>/SKILL.md`（必须）+ `scripts/`（可选）+ `references/`（可选）+ `assets/`（可选）。
+- **三层加载**：Phase 1 名字+描述（已有）→ Phase 2 SKILL.md 正文（已有）→ **Phase 3 子资源按需**（skill_loader 返回的 SOP 附上资源清单 + 绝对路径，LLM 按需用 `read_file` / `run_command` 访问）。
+- **零新增工具**：references 用 `read_file`，scripts 用 `run_command`，assets 用 `read_file` / `write_file`——全部复用现有工具。
+- **scripts 安全**：复用 SecurityGuard 黑名单 + 路径沙箱，不额外加沙箱（信任级别 ≤ 用户主动 `run_command`）。
+- **向后兼容**：单文件 Skill 退化为"只有 SKILL.md 的目录"，旧 Skill 无需改动。
+
+### 验收标准
+- Skill 目录结构正确解析（`SKILL.md` + `scripts/` + `references/` + `assets/`）。
+- LLM 能通过 `read_file` 读取 references。
+- LLM 能通过 `run_command` 执行 scripts。
+- LLM 能访问 assets。
+- Phase 3 按需加载（子资源不进 Phase 1/2，只在 LLM 调用时按需读取）。
+- 单文件旧 Skill 仍可用（向后兼容）。
+
+### 进阶练习
+- 写一个带 scripts 的 Skill（如 xlsx-cleaner），验证脚本执行与结果回传。
+
+---
+
+## 迭代 14：子 Agent
 
 ### 学习目标
 - Fork 父上下文或定义式空白对话，并行处理子任务。
@@ -567,7 +611,7 @@ SubAgent/
 
 ---
 
-## 迭代 14：Hook 引擎
+## 迭代 15：Hook 引擎
 
 ### 学习目标
 - 生命周期事件钩子，实现"工具执行前自动跑脚本"等自动化。
@@ -588,7 +632,7 @@ Hooks/
 
 ### 关键设计点
 - **Hook 12 种事件**：会话/轮次/消息/工具/系统五类。`tool_pre_exec` 可返回拒绝原因 → LLM 收到调整（拦截能力）。
-- **Hook 4 种动作**：`shell`（跑命令）/ `prompt_inject`（注入提示）/ `http`（调 webhook）/ `sub_agent`（起子 Agent，依赖迭代 13 的 `SubAgentRunner`）。
+- **Hook 4 种动作**：`shell`（跑命令）/ `prompt_inject`（注入提示）/ `http`（调 webhook）/ `sub_agent`（起子 Agent，依赖迭代 14 的 `SubAgentRunner`）。
 - **错误隔离**：Hook 失败只记日志，不中断 Agent 主循环。
 
 ### 验收标准
@@ -599,7 +643,7 @@ Hooks/
 
 ---
 
-## 三、可选扩展（前 14 迭代跑通后再考虑）
+## 三、可选扩展（前 15 迭代跑通后再考虑）
 
 | 模块 | 对应 MewCode | 价值 | 复杂度 |
 | --- | --- | --- | --- |
