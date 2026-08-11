@@ -8,7 +8,8 @@ namespace ParrotCode.xUnit;
 /// </summary>
 public class SkillRegistryTests
 {
-    private static SkillDefinition MakeSkill(string name, string desc = "", List<string>? allow = null, List<string>? deny = null)
+    private static SkillDefinition MakeSkill(string name, string desc = "", List<string>? allow = null, List<string>? deny = null,
+        string? skillDir = null, List<SkillResource>? resources = null)
         => new()
         {
             Meta = new SkillMeta
@@ -19,7 +20,9 @@ public class SkillRegistryTests
                 ToolsDeny = deny ?? new List<string>()
             },
             Body = $"# {name} SOP\nbody",
-            Source = SkillSource.Builtin
+            Source = SkillSource.Builtin,
+            SkillDir = skillDir,
+            Resources = resources ?? new List<SkillResource>()
         };
 
     private static SkillRegistry MakeRegistry(params SkillDefinition[] skills)
@@ -140,5 +143,100 @@ public class SkillRegistryTests
         result.SopContent.Should().Contain("read_file");
         result.SopContent.Should().Contain("禁用工具");
         result.SopContent.Should().Contain("skill_loader");
+    }
+
+    // ---- 迭代 13a：资源清单 ----
+
+    [Fact]
+    public void Activate_WithResources_SopContainsManifest()
+    {
+        var skill = MakeSkill("cleaner", resources: new List<SkillResource>
+        {
+            new() { Kind = SkillResourceKind.Script, RelativePath = "scripts/clean.py", AbsolutePath = "/abs/scripts/clean.py" },
+            new() { Kind = SkillResourceKind.Reference, RelativePath = "references/spec.md", AbsolutePath = "/abs/references/spec.md" },
+            new() { Kind = SkillResourceKind.Asset, RelativePath = "assets/template.json", AbsolutePath = "/abs/assets/template.json" }
+        });
+        var registry = MakeRegistry(skill);
+        var result = registry.Activate("cleaner");
+
+        result.SopContent.Should().Contain("## 资源清单");
+        result.SopContent.Should().Contain("/abs/scripts/clean.py");
+        result.SopContent.Should().Contain("/abs/references/spec.md");
+        result.SopContent.Should().Contain("/abs/assets/template.json");
+    }
+
+    [Fact]
+    public void Activate_WithResources_ManifestGroupedByKind()
+    {
+        var skill = MakeSkill("tool", resources: new List<SkillResource>
+        {
+            new() { Kind = SkillResourceKind.Script, RelativePath = "scripts/run.sh", AbsolutePath = "/abs/scripts/run.sh" },
+            new() { Kind = SkillResourceKind.Reference, RelativePath = "references/doc.md", AbsolutePath = "/abs/references/doc.md" },
+            new() { Kind = SkillResourceKind.Asset, RelativePath = "assets/tmpl.json", AbsolutePath = "/abs/assets/tmpl.json" }
+        });
+        var registry = MakeRegistry(skill);
+        var result = registry.Activate("tool");
+
+        result.SopContent.Should().Contain("### 脚本");
+        result.SopContent.Should().Contain("### 参考文档");
+        result.SopContent.Should().Contain("### 资产");
+    }
+
+    [Fact]
+    public void Activate_WithResources_ManifestContainsToolHints()
+    {
+        var skill = MakeSkill("tool", resources: new List<SkillResource>
+        {
+            new() { Kind = SkillResourceKind.Script, RelativePath = "scripts/run.sh", AbsolutePath = "/abs/scripts/run.sh" },
+            new() { Kind = SkillResourceKind.Reference, RelativePath = "references/doc.md", AbsolutePath = "/abs/references/doc.md" },
+            new() { Kind = SkillResourceKind.Asset, RelativePath = "assets/tmpl.json", AbsolutePath = "/abs/assets/tmpl.json" }
+        });
+        var registry = MakeRegistry(skill);
+        var result = registry.Activate("tool");
+
+        result.SopContent.Should().Contain("run_command");
+        result.SopContent.Should().Contain("read_file");
+        result.SopContent.Should().Contain("write_file");
+    }
+
+    [Fact]
+    public void Activate_NoResources_SopDoesNotContainManifest()
+    {
+        var registry = MakeRegistry(MakeSkill("simple"));
+        var result = registry.Activate("simple");
+
+        result.SopContent.Should().NotContain("## 资源清单");
+    }
+
+    [Fact]
+    public void GetSummary_DoesNotContainResourcePaths()
+    {
+        var skill = MakeSkill("tool", resources: new List<SkillResource>
+        {
+            new() { Kind = SkillResourceKind.Script, RelativePath = "scripts/run.sh", AbsolutePath = "/secret/scripts/run.sh" }
+        });
+        var registry = MakeRegistry(skill);
+
+        var summary = registry.GetSummary();
+
+        summary.Should().NotContain("/secret/scripts/run.sh");
+        summary.Should().NotContain("## 资源清单");
+        summary.Should().Contain("tool");
+    }
+
+    [Fact]
+    public void Activate_WithResources_SopDoesNotContainResourceContent()
+    {
+        var skill = MakeSkill("tool", resources: new List<SkillResource>
+        {
+            new() { Kind = SkillResourceKind.Reference, RelativePath = "references/spec.md", AbsolutePath = "/abs/references/spec.md" }
+        });
+        var registry = MakeRegistry(skill);
+        var result = registry.Activate("tool");
+
+        // 清单只含路径，不含文件正文
+        result.SopContent.Should().Contain("/abs/references/spec.md");
+        // 确保只有路径引用，没有正文内容占位
+        result.SopContent.Should().NotContain("read_file 读取以下内容");
     }
 }

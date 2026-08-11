@@ -6,12 +6,15 @@ using YamlDotNet.Serialization.NamingConventions;
 namespace ParrotCode;
 
 /// <summary>
-/// Skill 加载器（迭代 12）：三级目录扫描 + YAML frontmatter 解析。
+/// Skill 加载器（迭代 12 + 13a）：三级目录扫描 + YAML frontmatter 解析 + 目录格式支持。
 /// 加载顺序（后者覆盖前者同名）：
-/// 1. 内置 Skills/Builtin/*.md（随程序发布，AppContext.BaseDirectory 定位）
-/// 2. 全局 ~/.parrotcode/skills/*.md
-/// 3. 项目 ./.parrotcode/skills/*.md
-/// 复用迭代 10c InstructionLoader 的三级扫描模式，区别在扫描多文件 + 同名覆盖。
+/// 1. 内置 Skills/Builtin/（随程序发布，AppContext.BaseDirectory 定位）
+/// 2. 全局 ~/.parrotcode/skills/
+/// 3. 项目 ./.parrotcode/skills/
+/// 支持两种格式（迭代 13a）：
+/// - 单文件格式：<name>.md（向后兼容）
+/// - 目录格式：<name>/SKILL.md + scripts/ + references/ + assets/（Phase 3 按需加载）
+/// 同级同名时目录格式优先 + 警告日志。
 /// </summary>
 public sealed class SkillLoader
 {
@@ -56,28 +59,100 @@ public sealed class SkillLoader
     }
 
     /// <summary>
-    /// 扫描指定目录下的所有 *.md，解析后加入 byName（后者覆盖前者）。
-    /// 目录不存在静默跳过；单个文件解析失败记录日志跳过，不中断整体加载。
+    /// 扫描指定目录下的 Skill：先扫单文件 *.md（向后兼容），再扫目录 */SKILL.md（目录格式）。
+    /// 同名时目录格式覆盖单文件版本（+ 警告日志）。
+    /// 目录不存在静默跳过；单个 Skill 解析失败记录日志跳过，不中断整体加载。
     /// </summary>
     private void ScanDirectory(string dir, SkillSource source, Dictionary<string, SkillDefinition> byName)
     {
         if (!Directory.Exists(dir)) return;
 
+        // 1. 扫描单文件格式 *.md（向后兼容）
         foreach (var file in Directory.GetFiles(dir, "*.md"))
         {
+            // 防御性跳过顶层 SKILL.md（目录格式在子目录内，不会被 GetFiles(dir, "*.md") 扫到）
+            if (Path.GetFileName(file) == "SKILL.md") continue;
+
             try
             {
                 var def = ParseFile(file, source);
                 if (def is not null)
                 {
-                    byName[def.Meta.Name] = def;  // 后者覆盖前者
-                    _logger?.LogDebug("已加载 Skill {Name}（{Source}）：{File}", def.Meta.Name, source, file);
+                    byName[def.Meta.Name] = def;
+                    _logger?.LogDebug("已加载单文件 Skill {Name}（{Source}）：{File}", def.Meta.Name, source, file);
                 }
             }
             catch (Exception ex)
             {
                 _logger?.LogWarning("Skill 文件解析失败 {File}：{Error}", file, ex.Message);
             }
+        }
+
+        // 2. 扫描目录格式 <name>/SKILL.md
+        foreach (var subDir in Directory.GetDirectories(dir))
+        {
+            var skillFile = Path.Combine(subDir, "SKILL.md");
+            if (!File.Exists(skillFile)) continue;
+
+            try
+            {
+                var def = ParseDirectory(subDir, skillFile, source);
+                if (def is not null)
+                {
+                    // 同名冲突检测：单文件版本已存在则警告（目录格式优先）
+                    if (byName.TryGetValue(def.Meta.Name, out var existing) && existing.Source == source)
+                    {
+                        _logger?.LogWarning("Skill {Name} 在 {Source} 层级同时存在单文件和目录格式，使用目录格式（{Dir}）",
+                            def.Meta.Name, source, subDir);
+                    }
+                    byName[def.Meta.Name] = def;
+                    _logger?.LogDebug("已加载目录 Skill {Name}（{Source}）：{Dir}（{Count} 个资源）",
+                        def.Meta.Name, source, subDir, def.Resources.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning("Skill 目录解析失败 {Dir}：{Error}", subDir, ex.Message);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 解析目录格式 Skill：先复用 ParseFile 解析 SKILL.md，再扫描子目录资源。
+    /// </summary>
+    private SkillDefinition? ParseDirectory(string skillDir, string skillFile, SkillSource source)
+    {
+        var def = ParseFile(skillFile, source);
+        if (def is null) return null;
+
+        var resources = new List<SkillResource>();
+        ScanResources(skillDir, "scripts", SkillResourceKind.Script, resources);
+        ScanResources(skillDir, "references", SkillResourceKind.Reference, resources);
+        ScanResources(skillDir, "assets", SkillResourceKind.Asset, resources);
+
+        return def with { SkillDir = skillDir, Resources = resources };
+    }
+
+    /// <summary>
+    /// 递归扫描子目录下的所有文件（跳过隐藏文件）。
+    /// </summary>
+    private void ScanResources(string skillDir, string subDirName, SkillResourceKind kind, List<SkillResource> resources)
+    {
+        var subDir = Path.Combine(skillDir, subDirName);
+        if (!Directory.Exists(subDir)) return;
+
+        foreach (var file in Directory.GetFiles(subDir, "*", SearchOption.AllDirectories))
+        {
+            var fileName = Path.GetFileName(file);
+            // 跳过隐藏文件（.DS_Store / .gitkeep 等）
+            if (fileName.StartsWith(".")) continue;
+
+            resources.Add(new SkillResource
+            {
+                Kind = kind,
+                RelativePath = Path.GetRelativePath(skillDir, file),
+                AbsolutePath = Path.GetFullPath(file)
+            });
         }
     }
 

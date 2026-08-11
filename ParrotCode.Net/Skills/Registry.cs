@@ -141,7 +141,8 @@ public sealed class SkillRegistry
     }
 
     /// <summary>
-    /// 构建注入 history 的 SOP 文本（含元信息提示，便于 LLM 理解约束）。
+    /// 构建注入 history 的 SOP 文本（含元信息 + 资源清单）。
+    /// 资源清单是 Phase 3 的入口：LLM 看到绝对路径后按需用现有工具访问。
     /// 作为 skill_loader 工具的 ToolResult.Content 返回。
     /// </summary>
     private static string BuildSop(SkillDefinition def)
@@ -154,6 +155,33 @@ public sealed class SkillRegistry
             sb.AppendLine().AppendLine($"**可用工具**：{string.Join(", ", def.Meta.ToolsAllow)}");
         if (def.Meta.ToolsDeny.Count > 0)
             sb.AppendLine().AppendLine($"**禁用工具**：{string.Join(", ", def.Meta.ToolsDeny)}");
+
+        // Phase 3：资源清单（仅有资源时追加）
+        if (def.Resources.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("## 资源清单（按需访问，勿一次性全部读取）");
+            sb.AppendLine("以下资源不随 SOP 加载，请根据 SOP 步骤按需用现有工具访问：");
+
+            var byKind = def.Resources.GroupBy(r => r.Kind).OrderBy(g => (int)g.Key);
+            foreach (var group in byKind)
+            {
+                var (kindName, toolHint) = group.Key switch
+                {
+                    SkillResourceKind.Script    => ("脚本", "用 run_command 执行"),
+                    SkillResourceKind.Reference => ("参考文档", "用 read_file 读取"),
+                    SkillResourceKind.Asset     => ("资产", "用 read_file / write_file 访问"),
+                    _                            => (group.Key.ToString(), "")
+                };
+                sb.AppendLine();
+                sb.AppendLine($"### {kindName}（{toolHint}）");
+                foreach (var res in group.OrderBy(r => r.RelativePath, StringComparer.Ordinal))
+                {
+                    sb.AppendLine($"- {res.AbsolutePath}");
+                }
+            }
+        }
+
         return sb.ToString();
     }
 }

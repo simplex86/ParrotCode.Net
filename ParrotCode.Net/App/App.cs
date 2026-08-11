@@ -121,8 +121,8 @@ internal sealed class App
             var skillLoader = new SkillLoader(projectRoot: projectRoot, logger: _logger);
             var skills = skillLoader.Load();
             skillRegistry = new SkillRegistry(skills,
-                                             maxActive: skillConfig.MaxActiveSkills ?? 3,
-                                             logger: _logger);
+                                              maxActive: skillConfig.MaxActiveSkills ?? 3,
+                                              logger: _logger);
             skillExecutor = new SkillExecutor(skillRegistry);
             if (skills.Count > 0)
                 _logger.LogInformation("已加载 {Count} 个 Skill", skills.Count);

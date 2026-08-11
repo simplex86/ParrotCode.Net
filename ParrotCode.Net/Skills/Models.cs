@@ -29,7 +29,7 @@ public sealed class SkillMeta
 }
 
 /// <summary>
-/// 完整 Skill 定义：元数据 + SOP 正文 + 来源路径。
+/// 完整 Skill 定义：元数据 + SOP 正文 + 来源路径 + 子资源（迭代 13a 扩展）。
 /// </summary>
 public sealed record SkillDefinition
 {
@@ -52,6 +52,60 @@ public sealed record SkillDefinition
     /// 来源层级（用于覆盖优先级判定与显示）。
     /// </summary>
     public SkillSource Source { get; init; }
+
+    /// <summary>
+    /// Skill 目录绝对路径（目录格式 Skill 才有，单文件 Skill 为 null）。
+    /// 用于扫描子资源 + 调试定位。
+    /// </summary>
+    public string? SkillDir { get; init; }
+
+    /// <summary>
+    /// 子资源列表（Phase 3 按需加载项）。
+    /// 单文件 Skill 或无子目录的目录 Skill 均为空列表。
+    /// </summary>
+    public IReadOnlyList<SkillResource> Resources { get; init; } = Array.Empty<SkillResource>();
+}
+
+/// <summary>
+/// Skill 子资源类型（Phase 3 按需加载）。
+/// 类型由所在子目录决定，不校验文件扩展名。
+/// </summary>
+public enum SkillResourceKind
+{
+    /// <summary>
+    /// scripts/ 下的脚本，用 run_command 执行。
+    /// </summary>
+    Script,
+    /// <summary>
+    /// references/ 下的参考文档，用 read_file 读取。
+    /// </summary>
+    Reference,
+    /// <summary>
+    /// assets/ 下的资产，用 read_file / write_file 访问。
+    /// </summary>
+    Asset
+}
+
+/// <summary>
+/// Skill 子资源（Phase 3 按需加载项）。
+/// 不随 SOP 正文加载，只在资源清单中列出绝对路径，LLM 按需用现有工具访问。
+/// </summary>
+public sealed record SkillResource
+{
+    /// <summary>
+    /// 资源类型（决定 LLM 应使用哪个工具访问）。
+    /// </summary>
+    public required SkillResourceKind Kind { get; init; }
+
+    /// <summary>
+    /// 相对 SkillDir 的路径（如 "scripts/clean.py"），用于清单可读性。
+    /// </summary>
+    public required string RelativePath { get; init; }
+
+    /// <summary>
+    /// 绝对路径（LLM 传给 read_file / run_command 的值）。
+    /// </summary>
+    public required string AbsolutePath { get; init; }
 }
 
 /// <summary>
