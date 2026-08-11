@@ -530,35 +530,41 @@ Skills/
 
 ---
 
-## 迭代 13：Skill 目录化与三层加载
+## 迭代 13：Skill 目录化与三层加载 + /skill 管理命令
+
+> 拆分为两个正交子迭代：13a（目录化与三层加载，加载层）+ 13b（/skill 管理命令，交互层）。详见 `.docs/iter-13-design.md`。
 
 ### 学习目标
-- Skill 从单文件升级为目录结构，支持 `scripts/` / `references/` / `assets/` 三层按需加载。
+- Skill 从单文件升级为目录结构，支持 `scripts/` / `references/` / `assets/` 三层按需加载（13a）。
+- 斜杠命令的子命令解析与 Skill 生命周期管理（13b）。
 
 ### 交付物
-- SkillLoader 目录扫描改造 + 三层加载机制（Phase 3 按需）+ 向后兼容单文件。
+- **13a**：SkillLoader 目录扫描改造 + 三层加载机制（Phase 3 按需）+ 向后兼容单文件。
+- **13b**：`/skill` 命令（list / info / activate / deactivate）。
 
 ### 影响文件
 ```
-Skills/
-├── Loader.cs                  # 扫描 <name>/SKILL.md 目录而非单文件
-├── Models.cs                  # SkillDefinition 加 SkillDir + SkillResources
-├── SkillTool.cs               # SOP 注入时附上资源清单 + 绝对路径
+Skills/                         # 13a
+├── Loader.cs                   # 扫描 <name>/SKILL.md 目录而非单文件
+├── Models.cs                   # SkillDefinition 加 SkillDir + Resources + SkillResource
+├── Registry.cs                 # BuildSop 追加资源清单段
+├── Executor.cs                 # 13b 新增 GetAll()
 └── Builtin/
-    ├── commit/                # 升级为目录（SKILL.md + 可选子目录）
-    │   └── SKILL.md
-    ├── review/
-    │   └── SKILL.md
-    └── test/
-        └── SKILL.md
+    ├── commit/SKILL.md         # 升级为目录
+    ├── review/SKILL.md
+    └── test/SKILL.md
+Commands/Builtin/               # 13b
+└── SkillCommand.cs             # /skill list|info|activate|deactivate
 ```
 
 ### 关键设计点
 - **Skill 目录结构**：`<name>/SKILL.md`（必须）+ `scripts/`（可选）+ `references/`（可选）+ `assets/`（可选）。
-- **三层加载**：Phase 1 名字+描述（已有）→ Phase 2 SKILL.md 正文（已有）→ **Phase 3 子资源按需**（skill_loader 返回的 SOP 附上资源清单 + 绝对路径，LLM 按需用 `read_file` / `run_command` 访问）。
+- **三层加载**：Phase 1 名字+描述（已有）→ Phase 2 SKILL.md 正文 + 资源清单（已有+追加）→ **Phase 3 子资源按需**（LLM 按清单用 `read_file` / `run_command` 访问）。
 - **零新增工具**：references 用 `read_file`，scripts 用 `run_command`，assets 用 `read_file` / `write_file`——全部复用现有工具。
 - **scripts 安全**：复用 SecurityGuard 黑名单 + 路径沙箱，不额外加沙箱（信任级别 ≤ 用户主动 `run_command`）。
 - **向后兼容**：单文件 Skill 退化为"只有 SKILL.md 的目录"，旧 Skill 无需改动。
+- **/skill activate**：复用 `/commit` 的注入模式（SOP 入 history + 触发 Agent round），是 `/commit` 的泛化版。
+- **13a/13b 正交**：13a 改 `Skills/`，13b 改 `Commands/`，改动文件不重叠，可独立验收。
 
 ### 验收标准
 - Skill 目录结构正确解析（`SKILL.md` + `scripts/` + `references/` + `assets/`）。
@@ -567,9 +573,14 @@ Skills/
 - LLM 能访问 assets。
 - Phase 3 按需加载（子资源不进 Phase 1/2，只在 LLM 调用时按需读取）。
 - 单文件旧 Skill 仍可用（向后兼容）。
+- `/skill list` 列出所有 Skill（name + description + 来源 + 激活状态 + 资源数）。
+- `/skill info <name>` 显示 Skill 详情（含资源清单 + SOP 预览）。
+- `/skill activate <name>` 激活 Skill 并触发 Agent round。
+- `/skill deactivate <name>` 停用 Skill。
 
 ### 进阶练习
 - 写一个带 scripts 的 Skill（如 xlsx-cleaner），验证脚本执行与结果回传。
+- 为 `/skill` 添加 `skills` 别名或 Tab 补全子命令。
 
 ---
 
