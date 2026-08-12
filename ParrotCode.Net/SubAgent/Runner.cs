@@ -111,10 +111,9 @@ public sealed class SubAgentRunner
     /// Definitional 模式传 null——子 Agent 不继承父上下文。
     /// </param>
     /// <param name="cancellationToken">取消令牌。</param>
-    public async Task<SubAgentResult> RunAsync(
-        SubAgentRequest request,
-        ConversationHistory? parentHistory,
-        CancellationToken cancellationToken)
+    public async Task<SubAgentResult> RunAsync(SubAgentRequest request,
+                                               ConversationHistory? parentHistory,
+                                               CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -133,35 +132,31 @@ public sealed class SubAgentRunner
         var systemPrompt = BuildSystemPrompt(request, role);
 
         // 5. 构建子 Agent 的 BatchToolExecutor（NullHitlGate，无交互）
-        var executor = new ToolExecutor(
-            filteredRegistry,
-            TimeSpan.FromSeconds(30),
-            _logger);
-        var batchExecutor = new SecureBatchToolExecutor(
-            executor,
-            filteredRegistry,
-            _securityGuard,
-            maxParallelism: 5,
-            hitlGate: new NullHitlGate(),  // 子 Agent 不问用户
-            logger: _logger);
+        var executor = new ToolExecutor(filteredRegistry,
+                                        TimeSpan.FromSeconds(30),
+                                        _logger);
+        var batchExecutor = new SecureBatchToolExecutor(executor,
+                                                        filteredRegistry,
+                                                        _securityGuard,
+                                                        maxParallelism: 5,
+                                                        hitlGate: new NullHitlGate(),  // 子 Agent 不问用户
+                                                        logger: _logger);
 
         // 6. 构建收集型 EventSink
         var sink = new CollectingEventSink();
 
         // 7. 构建并运行 AgentLoop（嵌套实例，零改动 AgentLoop 类）
         var maxRounds = _config.MaxRounds ?? 5;
-        var loop = new AgentLoop(
-            _provider,
-            filteredRegistry,
-            batchExecutor,
-            maxRounds: maxRounds,
-            toolChoice: "auto",
-            systemPrompt: systemPrompt,
-            compressor: null,  // 子 Agent 不做压缩
-            logger: null);  // 不给 logger，避免 stderr 交错（与主 AgentLoop 一致的硬约束）
+        var loop = new AgentLoop(_provider,
+                                 filteredRegistry,
+                                 batchExecutor,
+                                 maxRounds: maxRounds,
+                                 toolChoice: "auto",
+                                 systemPrompt: systemPrompt,
+                                 compressor: null,  // 子 Agent 不做压缩
+                                 logger: null);  // 不给 logger，避免 stderr 交错（与主 AgentLoop 一致的硬约束）
 
-        _logger?.LogInformation("启动子 Agent：role={Role}, mode={Mode}, maxRounds={Max}",
-            request.Role, request.Mode, maxRounds);
+        _logger?.LogInformation("启动子 Agent：role={Role}, mode={Mode}, maxRounds={Max}", request.Role, request.Mode, maxRounds);
 
         await loop.RunAsync(history, sink, cancellationToken);
 
@@ -174,8 +169,7 @@ public sealed class SubAgentRunner
             _logger?.LogWarning("子 Agent 报告截断：原始 {Orig} 字符 → 截断到 {Max}", report.Length, maxChars);
         }
 
-        _logger?.LogInformation("子 Agent 完成：role={Role}, rounds={Rounds}, report={Len} 字符",
-            request.Role, sink.RoundsCompleted, report.Length);
+        _logger?.LogInformation("子 Agent 完成：role={Role}, rounds={Rounds}, report={Len} 字符", request.Role, sink.RoundsCompleted, report.Length);
 
         return new SubAgentResult
         {
@@ -196,8 +190,7 @@ public sealed class SubAgentRunner
     /// - Message 是 sealed record + init 属性——不可变，子 Agent 无法修改已有消息
     /// - 子 Agent 只能通过 AddUser/AddAssistant 在自己的 _messages 末尾追加，不影响 parent
     /// </summary>
-    private static ConversationHistory BuildHistory(
-        SubAgentRequest request, ConversationHistory? parentHistory)
+    private static ConversationHistory BuildHistory(SubAgentRequest request, ConversationHistory? parentHistory)
     {
         var history = new ConversationHistory();
 
@@ -206,9 +199,9 @@ public sealed class SubAgentRunner
             // Fork：复制父历史（副本，不修改父）
             history.ReplaceMessages(parentHistory.ToProviderMessages());
         }
-
         // 追加任务作为 user 消息
         history.AddUser(request.Task);
+
         return history;
     }
 

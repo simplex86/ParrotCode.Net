@@ -124,9 +124,7 @@ public sealed class RoleLoader
     /// frontmatter 分离正则：以 --- 包围的 YAML + 其后的正文。
     /// Singleline 让 . 匹配换行；\r?\n 兼容 Windows/Unix 换行。
     /// </summary>
-    private static readonly Regex FrontmatterRegex =
-        new(@"^---\s*\r?\n(.*?)\r?\n---\s*\r?\n(.*)$",
-            RegexOptions.Singleline | RegexOptions.Compiled);
+    private static readonly Regex FrontmatterRegex = new(@"^---\s*\r?\n(.*?)\r?\n---\s*\r?\n(.*)$", RegexOptions.Singleline | RegexOptions.Compiled);
 }
 
 /// <summary>
