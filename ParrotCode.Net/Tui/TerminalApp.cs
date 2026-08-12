@@ -28,6 +28,8 @@ internal sealed class TerminalApp : IUiControl, IDisposable
     private readonly McpConnectionManager? _mcpManager;  // 11c 新增：MCP 连接管理器
     private readonly SkillRegistry? _skillRegistry;  // 迭代 12 新增：Skill 注册表
     private readonly SkillExecutor? _skillExecutor;  // 迭代 12 新增：Skill 执行器
+    private readonly RoleRegistry? _roleRegistry;  // 迭代 14 新增：子 Agent 角色注册表
+    private readonly SubAgentConfig _subAgentConfig;  // 迭代 14 新增：子 Agent 配置
     private string? _mcpStartupInfo;  // MCP 连接状态，待 ChatView 创建后显示
     private readonly ILogger? _logger;
     private readonly CancellationToken _ct;
@@ -64,6 +66,8 @@ internal sealed class TerminalApp : IUiControl, IDisposable
                        McpConnectionManager? mcpManager,  // 11c 新增
                        SkillRegistry? skillRegistry,      // 迭代 12 新增
                        SkillExecutor? skillExecutor,      // 迭代 12 新增
+                       RoleRegistry? roleRegistry,        // 迭代 14 新增
+                       SubAgentConfig? subAgentConfig,    // 迭代 14 新增
                        ILogger? logger,
                        CancellationToken ct)
     {
@@ -79,6 +83,8 @@ internal sealed class TerminalApp : IUiControl, IDisposable
         _mcpManager = mcpManager;
         _skillRegistry = skillRegistry;
         _skillExecutor = skillExecutor;
+        _roleRegistry = roleRegistry;
+        _subAgentConfig = subAgentConfig ?? new SubAgentConfig();
         _logger = logger;
         _ct = ct;
 
@@ -148,6 +154,19 @@ internal sealed class TerminalApp : IUiControl, IDisposable
         _mcpStartupInfo = BuildMcpStartupInfo();
 
         _history = new ConversationHistory();
+
+        // 【迭代 14】注册 sub_agent 工具
+        // SubAgentTool 持有 _history 引用（Fork 模式用），所以必须在 _history 创建后注册
+        if (_roleRegistry is not null && (_subAgentConfig.Enable ?? true))
+        {
+            var runner = new SubAgentRunner(_provider,
+                                            _registry,
+                                            _securityGuard,
+                                            _roleRegistry,
+                                            _subAgentConfig,
+                                            logger: null);  // TUI 模式 logger 传 null，避免 stderr 交错
+            _registry.Register(new SubAgentTool(runner, _history));
+        }
 
         // 2. Terminal.Gui 初始化
         // Windows: WindowsDriver 不支持非 BMP 字符（emoji），会将其替换为 U+FFFD（�）。

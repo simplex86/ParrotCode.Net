@@ -82,3 +82,44 @@ public enum SubAgentMode
     /// </summary>
     Fork
 }
+
+// ===== 迭代 14b 追加：子 Agent 运行时类型 =====
+
+/// <summary>
+/// 子 Agent 请求（sub_agent 工具的参数载体，迭代 14b 新增）。
+/// </summary>
+public sealed record SubAgentRequest
+{
+    /// <summary>任务描述（作为子 Agent 的 user 消息）。必填。</summary>
+    public required string Task { get; init; }
+
+    /// <summary>角色名（definitional 模式用，默认 general）。角色定义 system prompt + 工具过滤。</summary>
+    public string Role { get; init; } = "general";
+
+    /// <summary>运行模式。默认 Definitional。</summary>
+    public SubAgentMode Mode { get; init; } = SubAgentMode.Definitional;
+}
+
+/// <summary>
+/// 子 Agent 运行结果（迭代 14b 新增）。
+/// </summary>
+public sealed record SubAgentResult
+{
+    /// <summary>是否成功完成（含 MaxRounds 兜底——只要拿到报告就 true）。</summary>
+    public bool Success { get; init; }
+
+    /// <summary>
+    /// 子 Agent 的最终报告（AgentDoneEvent.FinalText 或 MaxRounds 时的 LastAssistantText，可能截断）。
+    /// </summary>
+    public string? Report { get; init; }
+
+    /// <summary>
+    /// 失败原因（角色不存在 / 异常等）。
+    /// </summary>
+    public string? Error { get; init; }
+
+    /// <summary>
+    /// 子 Agent 实际执行的轮次数。
+    /// </summary>
+    public int RoundsUsed { get; init; }
+}

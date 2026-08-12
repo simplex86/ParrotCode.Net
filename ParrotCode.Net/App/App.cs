@@ -128,6 +128,19 @@ internal sealed class App
                 _logger.LogInformation("已加载 {Count} 个 Skill", skills.Count);
         }
 
+        // 【迭代 14】构造子 Agent 角色系统（Loader 三级扫描 + Registry）
+        // enable: false 时不构造（sub_agent 工具不注册）
+        var subAgentConfig = _config.SubAgent ?? new SubAgentConfig();
+        RoleRegistry? roleRegistry = null;
+        if (subAgentConfig.Enable ?? true)
+        {
+            var roleLoader = new RoleLoader(projectRoot: projectRoot, logger: _logger);
+            var roles = roleLoader.Load();
+            roleRegistry = new RoleRegistry(roles);
+            if (roles.Count > 0)
+                _logger.LogInformation("已加载 {Count} 个子 Agent 角色", roles.Count);
+        }
+
         using var terminalApp = new TerminalApp(_provider,
                                                 _providerConfig,
                                                 _config.Agent,
@@ -140,6 +153,8 @@ internal sealed class App
                                                 mcpManager,           // 11c 新增
                                                 skillRegistry,        // 迭代 12 新增
                                                 skillExecutor,        // 迭代 12 新增
+                                                roleRegistry,         // 迭代 14 新增
+                                                subAgentConfig,       // 迭代 14 新增
                                                 _logger,
                                                 _ct);
         await terminalApp.RunAsync();

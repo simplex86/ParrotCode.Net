@@ -17,13 +17,15 @@ public sealed class SecurityGuard
     private readonly ILogger? _logger;
 
     /// <summary>
-    /// 系统工具白名单：始终放行（迭代 12 新增，skill_loader 等）。
+    /// 系统工具白名单：始终放行（迭代 12 新增 skill_loader，迭代 14 新增 sub_agent）。
     /// skill_loader 参数为 name，天然不匹配 path/cwd，不会被沙箱拦截；
+    /// sub_agent 参数为 task/role/mode，同样不匹配 path/cwd，不触发黑名单。
     /// 此处显式声明作为防御性编程，避免未来参数变更破坏豁免。
     /// </summary>
     private static readonly HashSet<string> SystemTools = new(StringComparer.Ordinal)
     {
-        "skill_loader"
+        "skill_loader",
+        "sub_agent"
     };
 
     /// <summary>当前安全等级（可运行时 set，为迭代 10 /mode 预留）。</summary>

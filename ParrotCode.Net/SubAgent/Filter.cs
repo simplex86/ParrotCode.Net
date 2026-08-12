@@ -33,9 +33,8 @@ public static class ToolFilter
             deny.Add(t);
 
         // 第 2 层：角色 tools_allow（白名单，空表示不限制）
-        var allow = role.Meta.ToolsAllow.Count > 0
-            ? new HashSet<string>(role.Meta.ToolsAllow, StringComparer.Ordinal)
-            : null;
+        var allow = role.Meta.ToolsAllow.Count > 0 ? new HashSet<string>(role.Meta.ToolsAllow, StringComparer.Ordinal)
+                                                   : null;
 
         foreach (var tool in parent.GetAll())
         {

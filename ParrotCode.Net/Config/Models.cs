@@ -69,6 +69,11 @@ public sealed record AppConfig
     /// Skill 系统配置（迭代 12 新增）。null 时用默认值。
     /// </summary>
     public SkillConfig? Skills { get; init; }
+
+    /// <summary>
+    /// 子 Agent 系统配置（迭代 14 新增）。null 时用默认值。
+    /// </summary>
+    public SubAgentConfig? SubAgent { get; init; }
 }
 
 /// <summary>
@@ -81,6 +86,32 @@ public sealed record SkillConfig
 
     /// <summary>同时激活的 Skill 上限。默认 3。防止 LLM 激活过多 Skill 污染上下文。</summary>
     public int? MaxActiveSkills { get; init; }
+}
+
+/// <summary>
+/// 子 Agent 系统配置（迭代 14 新增）。所有字段可选，缺省用默认值。
+/// </summary>
+public sealed record SubAgentConfig
+{
+    /// <summary>
+    /// 是否启用子 Agent 系统。默认 true。false 时 sub_agent 工具不注册。
+    /// </summary>
+    public bool? Enable { get; init; }
+
+    /// <summary>
+    /// 子 Agent 最大轮次。默认 5（比主 Agent 的 10 少，防止失控）。
+    /// </summary>
+    public int? MaxRounds { get; init; }
+
+    /// <summary>
+    /// 报告最大字符数。默认 2000（超长截断 + 提示）。
+    /// </summary>
+    public int? ReportMaxChars { get; init; }
+
+    /// <summary>
+    /// 最大并发后台任务数。默认 3（BackgroundTaskManager 用）。
+    /// </summary>
+    public int? MaxConcurrentBackground { get; init; }
 }
 
 /// <summary>

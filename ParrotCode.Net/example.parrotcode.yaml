@@ -107,3 +107,10 @@ mcp:
 skills:
   enable: true                     # 是否启用 Skill 系统（false 时 skill_loader 不注册，/commit 返回"未启用"）
   max_active_skills: 3            # 同时激活的 Skill 上限
+
+# 迭代 14 新增：子 Agent 系统（sub_agent 工具）
+sub_agent:
+  enable: true                     # 是否启用子 Agent（false 时 sub_agent 工具不注册）
+  max_rounds: 5                    # 子 Agent 最大轮次（比主 Agent 少，防止失控）
+  report_max_chars: 2000           # 报告最大字符数（超长截断）
+  max_concurrent_background: 3     # 最大并发后台任务数（后台模式预留）
