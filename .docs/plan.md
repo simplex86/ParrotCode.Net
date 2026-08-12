@@ -586,39 +586,52 @@ Commands/Builtin/               # 13b
 
 ## 迭代 14：子 Agent
 
+> 拆分为两个正交子迭代：14a（角色系统+三层工具过滤，加载层）+ 14b（SubAgentRunner+sub_agent 工具+装配，执行层）。总览详见 `.docs/iter-14-design.md`，详细设计见 `.docs/iter-14a-design.md` 和 `.docs/iter-14b-design.md`。
+
 ### 学习目标
 - Fork 父上下文或定义式空白对话，并行处理子任务。
 
 ### 交付物
-- `SubAgent/` 模块：Fork / 定义两种模式 + 后台任务管理。
+- **14a**：`SubAgent/` 角色加载层——`RoleLoader`（三级扫描，与 Skill 同构）+ `RoleRegistry` + `ToolFilter`（三层过滤）+ 3 个内置角色（explorer/planner/general）。
+- **14b**：`SubAgent/` 执行层——`SubAgentRunner`（复用 `AgentLoop` 跑嵌套循环）+ `CollectingEventSink`（收集事件取最终报告）+ `sub_agent` 工具 + `BackgroundTaskManager`（后台任务基础设施预留）+ Config/装配。
 
 ### 影响文件
 ```
 SubAgent/
-├── Models.cs
-├── Runner.cs                  # SubAgentRunner
-├── Filter.cs                  # 三层工具过滤（全局/角色/后台白名单）
-├── Manager.cs                 # BackgroundTaskManager
-├── SubAgentTool.cs            # sub_agent 工具
-└── Roles/
-    ├── RoleLoader.cs
-    └── Builtin/
-        ├── explorer.md
-        ├── planner.md
-        └── general.md
+├── Models.cs                  # 14a: RoleDefinition/Meta/Source + SubAgentMode 枚举
+│                               # 14b: 追加 SubAgentRequest/Result
+├── Filter.cs                  # 14a: ToolFilter（三层过滤：全局禁嵌套/角色 allow-deny/模式约束）
+├── Roles/
+│   ├── RoleLoader.cs          # 14a: RoleLoader + RoleRegistry（三级扫描）
+│   └── Builtin/
+│       ├── explorer.md        # 14a: 只读探索
+│       ├── planner.md         # 14a: 只读规划
+│       └── general.md         # 14a: 通用（继承父工具集）
+├── Runner.cs                  # 14b: SubAgentRunner + CollectingEventSink（internal）
+├── SubAgentTool.cs            # 14b: sub_agent 工具（Category=Read）
+└── Manager.cs                 # 14b: BackgroundTaskManager（基础设施，预留异步扩展）
 ```
 
 ### 关键设计点
 - **子 Agent 两种模式**：
-  - 定义式：空白对话 + 角色 SOP（explorer/planner/general）。
-  - Fork 式：继承父历史 + 注入强硬指令（不创建子 worker、不对话、直接干活、结构化报告 ≤ 500 字）。
-- **三层工具过滤**：全局禁止 sub_agent 嵌套 → 角色 allow/deny → 后台任务只读白名单。
+  - 定义式（Definitional）：空白对话 + 角色 SOP 作为 system prompt，不继承父上下文。
+  - Fork 式（Fork）：继承父历史副本 + 注入强硬指令（不创建子 worker、不对话、直接干活、结构化报告 ≤ 500 字）。
+- **三层工具过滤**：全局禁止 `sub_agent` 嵌套 → 角色 `tools_allow` / `tools_deny` → 模式约束（Fork 额外排除 `skill_loader`）。
+- **`AgentLoop` 零改动**：子 Agent 是 `AgentLoop` 的嵌套实例（独立 history / registry / sink / system prompt），同一 Provider / SecurityGuard。子 Agent 用 `NullHitlGate` 自主运行（安全层仍生效）。
+- **`CollectingEventSink` 报告提取**（源码审查修正）：`FinalText`（AgentDoneEvent）优先，MaxRounds 兜底用 `LastAssistantText`（AssistantMessageEvent 缓存最后一轮文本）——因为 AgentLoop 在 MaxRounds 路径不发 AgentDoneEvent。
+- **Fork 副本隔离**（源码审查验证）：`ReplaceMessages(ToProviderMessages())` 浅拷贝但 `Message` 是 `sealed record` + `init` 属性（不可变），子 Agent 只追加到自己的 list，不影响 parent。
+- **`BackgroundTaskManager`**：后台任务基础设施预留，`sub_agent` 工具本迭代仅支持同步模式。
 
 ### 验收标准
-- 让主 Agent 用 `sub_agent(task="探索一下这个项目的目录结构", role="explorer")`，后台子 Agent 完成后把报告注入主对话。
+- 14a：23 条功能验收（RoleLoader 三级扫描 + ToolFilter 三层过滤），见 `iter-14a-design.md` 第四节。
+- 14b：28 条功能验收（含 MaxRounds 兜底 + Fork 副本隔离 + 并发安全），见 `iter-14b-design.md` 第五节。
+- 端到端：`sub_agent(task="探索项目结构", role="explorer")` + `sub_agent(task="总结对话", mode="fork")` 跑通。
+- 整体验收路径与关键技术决策（源码审查结论）见 `iter-14-design.md` 总览文档。
 
 ### 进阶练习
 - 把子 Agent 接到 Git Worktree（参考 MewCode 的 `worktree/` 模块），让子 Agent 在独立工作目录操作。
+- `sub_agent` 工具加 `background` 参数，配合 `BackgroundTaskManager` 实现异步后台模式 + `/tasks` 命令查看状态。
+- `CollectingEventSink` 扩展为 `ProgressEventSink`，把子 Agent 中间事件转发到主 TUI（缩进/不同颜色区分）。
 
 ---
 
