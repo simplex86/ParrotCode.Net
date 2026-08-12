@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text;
 using Microsoft.Extensions.Logging;
 
@@ -189,20 +190,76 @@ public sealed class SubAgentRunner
     /// - <see cref="ConversationHistory.ReplaceMessages"/> 清空 + AddRange——浅拷贝（共享 Message 引用）
     /// - Message 是 sealed record + init 属性——不可变，子 Agent 无法修改已有消息
     /// - 子 Agent 只能通过 AddUser/AddAssistant 在自己的 _messages 末尾追加，不影响 parent
+    ///
+    /// Fork 历史清理（bug 修复）：
+    /// 主 Agent 调用 sub_agent 时，AgentLoop 已把 assistant(tool_calls) 入历史，
+    /// 但 tool 结果还没入（工具正在执行中）。直接复制会导致 OpenAI API 400：
+    /// "assistant message with 'tool_calls' must be followed by tool messages"。
+    /// 需先截断末尾未完成的 assistant(tool_calls)。
     /// </summary>
-    private static ConversationHistory BuildHistory(SubAgentRequest request, ConversationHistory? parentHistory)
+    private static ConversationHistory BuildHistory(
+        SubAgentRequest request, ConversationHistory? parentHistory)
     {
         var history = new ConversationHistory();
 
         if (request.Mode == SubAgentMode.Fork && parentHistory is not null)
         {
             // Fork：复制父历史（副本，不修改父）
-            history.ReplaceMessages(parentHistory.ToProviderMessages());
+            // 截断末尾未完成的 assistant(tool_calls)，避免 OpenAI 协议违规
+            var cleaned = TrimIncompleteToolCalls(parentHistory.ToProviderMessages());
+            history.ReplaceMessages(cleaned);
         }
+
         // 追加任务作为 user 消息
         history.AddUser(request.Task);
-
         return history;
+    }
+
+    /// <summary>
+    /// 截断历史中"未完全响应"的 assistant(tool_calls) 及其后续消息。
+    ///
+    /// 主 Agent 调用 sub_agent 工具时，AgentLoop 已经把 assistant(tool_calls) 入历史，
+    /// 但工具结果（tool 消息）还没入历史（工具正在执行中）。
+    /// Fork 模式如果直接复制这个历史，子 Agent 发给 LLM 的消息序列会违反 OpenAI 协议：
+    /// "assistant message with 'tool_calls' must be followed by tool messages"。
+    ///
+    /// 此方法从后往前扫描，找到第一个"未完全响应"的 assistant(tool_calls)，
+    /// 截断到它之前（保留它之前的所有完整消息）。
+    /// </summary>
+    internal static IReadOnlyList<Message> TrimIncompleteToolCalls(IReadOnlyList<Message> messages)
+    {
+        if (messages.Count == 0) return messages;
+
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            var msg = messages[i];
+            if (msg.Role != MessageRole.Assistant || msg.ToolCalls is not { Count: > 0 } calls)
+                continue;
+
+            // 收集 i 之后所有 tool 消息的 tool_call_id
+            var responded = new HashSet<string>(StringComparer.Ordinal);
+            for (var j = i + 1; j < messages.Count; j++)
+            {
+                if (messages[j].Role == MessageRole.Tool && messages[j].ToolCallId is { } id)
+                    responded.Add(id);
+            }
+
+            // 检查是否所有 tool_call 都有对应的 tool 响应
+            var allResponded = true;
+            foreach (var c in calls)
+            {
+                if (!responded.Contains(c.Id))
+                {
+                    allResponded = false;
+                    break;
+                }
+            }
+
+            if (!allResponded)
+                return messages.Take(i).ToArray();
+        }
+
+        return messages;
     }
 
     /// <summary>
