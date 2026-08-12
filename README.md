@@ -1,10 +1,10 @@
-# ParrotCode.Net
+# Parrot Code
 
-基于 .NET 8 的终端 AI 编程助手（仿 Claude Code）。编写这个项目的根本目的是学习 Agent 底层原理与工程实现，而不是交付一个生产级产品：通过 15 个循序渐进的迭代，从零亲手实现 ReAct 循环、工具系统、HITL、安全防御、上下文压缩、MCP、Skill 等 Agent 核心机制，把"Agent 到底是怎么跑起来的"这件事彻底搞清楚。
+基于 .NET 8 的终端 AI 编程助手（仿 Claude Code）。编写这个项目的根本目的是学习 Agent 底层原理与工程实现，而不是交付生产级的产品：通过 15+ 个循序渐进的迭代，从零亲手实现 ReAct 循环、工具系统、HITL、安全防御、上下文压缩、MCP、Skill、SubAgent 等 Agent 核心机制，把"Agent 到底是怎么跑起来的"这件事彻底搞清楚。
 
 ## 功能特性
 
-当前已实现的能力（对应迭代 1~13）：
+当前已实现的能力（对应迭代 1~14）：
 
 - 多 Provider：OpenAI 兼容协议（以 DeepSeek 为主要联调对象）与 Mock Provider，配置文件三级发现
 - ReAct Agent 循环：事件流架构，AgentLoop 通过 Channel 产出事件、UI 侧消费，生产与展示解耦；读工具并发、写工具串行，带最大轮次保护
@@ -18,6 +18,7 @@
 - 项目指令：项目根目录的 PARROTCODE.md 自动注入对话，支持 @include 嵌套（限 3 层）
 - MCP 客户端：JSON-RPC 2.0 协议，Stdio 子进程与 Streamable HTTP 两种传输，MCP 工具名加 `{server}/{tool}` 前缀防冲突
 - Skill 系统：目录化 SKILL.md + scripts / references / assets 三层按需加载，SOP 两阶段注入，内置 commit / review / test 三个 Skill
+- SubAgent 系统：SubAgent Runner + 角色 + 三层工具过滤 + sub_agent 工具
 
 ## 架构与目录结构
 
@@ -84,7 +85,7 @@ ParrotCode.Net/
 | [14](.docs/iter-14-design.md) | 子 Agent（拆分为 [14a](.docs/iter-14a-design.md)、[14b](.docs/iter-14b-design.md)） | 已完成 |
 | 15 | Hook 引擎 | 未开始 |
 
-前 15 个迭代跑通后，视情况引入可选扩展：Git Worktree 隔离、Agent Team 编排、自动笔记等（价值与复杂度评估见 [plan.md](.docs/plan.md) 第三章）。
+前 15 个迭代跑通后，视情况引入可选扩展。
 
 ## 文档导航
 
@@ -169,7 +170,7 @@ dotnet test
 | 日志 | Microsoft.Extensions.Logging |
 | 测试 | xUnit + FluentAssertions + coverlet |
 
-测试项目 `ParrotCode.Net-xUnit/` 覆盖全部核心模块，共 61 个测试文件、826 个测试用例；Provider 层通过 mock `HttpMessageHandler` 测试，不打真实 API。每个迭代以 `dotnet test` 全绿作为完成标准。
+测试项目 `ParrotCode.Net-xUnit/` 覆盖全部核心模块，每个迭代以 `dotnet test` 全绿作为完成标准。
 
 ## 学习背景与致谢
 
