@@ -54,6 +54,8 @@ ParrotCode.Net/
 ├── Skills/                  # Skill 系统（两阶段加载）
 │   └── Builtin/             # commit / review / test（目录化 SKILL.md）
 ├── Storage/                 # JSONL 会话持久化
+├── SubAgent/                # SubAgent
+│   └── Roles/               # SubAgent 的角色
 ├── Tools/                   # 工具系统（read / write / edit / run / glob / grep）
 ├── Tui/                     # Terminal.Gui v2 全屏界面与 HITL 弹窗
 ├── Program.cs               # 入口
@@ -90,42 +92,42 @@ ParrotCode.Net/
 
 ```
 .docs/
-├── plan.md                  # 总体开发计划：技术栈选型、15 个迭代路线图、跨迭代约定
-├── iter-01-design.md        # 迭代 1：项目脚手架 + 最小可跑
-├── iter-02-design.md        # 迭代 2：配置系统 + Provider 抽象层（总览）
-│   ├── iter-02a-design.md   #   2a：Provider 抽象层
-│   └── iter-02b-design.md   #   2b：配置系统
-├── iter-03-design.md        # 迭代 3：第一个 LLM Provider + 流式输出
-├── iter-04-design.md        # 迭代 4：对话历史 + 多轮上下文
-├── iter-05-design.md        # 迭代 5：工具系统骨架 + 三个文件工具
-├── iter-06-design.md        # 迭代 6：ReAct Agent 循环
-├── iter-07-design.md        # 迭代 7：TUI 接入（总览）
-│   ├── iter-07a-design.md   #   7a：TUI 展示层（Spectre.Console Live + 状态栏 + Tab 补全）
-│   ├── iter-07b-design.md   #   7b：HITL 交互层
-│   ├── iter-07c-design.md   #   7c：TUI 库迁移（Spectre.Console → Terminal.Gui v2）
-│   ├── iter-07c-1-design.md #   7c-1：Terminal.Gui 基础设施 + 三段式静态布局
-│   ├── iter-07c-2-design.md #   7c-2：事件流接入 + 流式渲染
-│   └── iter-07c-3-design.md #   7c-3：HITL 模态对话框 + Spinner + 收尾
-├── iter-08-design.md        # 迭代 8：安全纵深防御（总览）
-│   ├── iter-08a-design.md   #   8a：安全核心（SecurityLevel + Blacklist + PathSandbox）
-│   ├── iter-08b-design.md   #   8b：安全管线编排 + Agent 集成
-│   └── iter-08c-design.md   #   8c：配置扩展 + 装配 + 端到端验收
-├── iter-09-design.md        # 迭代 9：上下文管理（截断 + 摘要 + 压缩）
-├── iter-10-design.md        # 迭代 10：斜杠命令 + 会话持久化 + 项目指令（总览）
-│   ├── iter-10a-design.md   #   10a：斜杠命令系统骨架
-│   ├── iter-10b-design.md   #   10b：JSONL 会话持久化
-│   └── iter-10c-design.md   #   10c：项目指令
-├── iter-11-design.md        # 迭代 11：MCP 协议客户端（总览）
-│   ├── iter-11a-design.md   #   11a：JSON-RPC 协议层 + Stdio 传输
-│   ├── iter-11b-design.md   #   11b：MCP 客户端 + 工具适配器
-│   └── iter-11c-design.md   #   11c：HTTP SSE 传输 + 连接管理器
-├── iter-12-design.md        # 迭代 12：Skill 系统
-├── iter-13-design.md        # 迭代 13：Skill 目录化与三层加载 + /skill 管理命令（总览）
-│   ├── iter-13a-design.md   #   13a：Skill 目录化与三层加载
-│   └── iter-13b-design.md   #   13b：/skill 管理命令
-├── iter-14-design.md        # 迭代 14：子 Agent（总览）
-│   ├── iter-14a-design.md   #   14a：角色系统与三层工具过滤
-│   └── iter-14b-design.md   #   14b：SubAgentRunner + sub_agent 工具 + 装配
+└── plan.md                          # 总体开发计划：技术栈选型、15 个迭代路线图、跨迭代约定
+    ├── iter-01-design.md            #   迭代 1：项目脚手架 + 最小可跑
+    ├── iter-02-design.md            #   迭代 2：配置系统 + Provider 抽象层（总览）
+    │   ├── iter-02a-design.md       #     2a：Provider 抽象层
+    │   └── iter-02b-design.md       #     2b：配置系统
+    ├── iter-03-design.md            #   迭代 3：第一个 LLM Provider + 流式输出
+    ├── iter-04-design.md            #   迭代 4：对话历史 + 多轮上下文
+    ├── iter-05-design.md            #   迭代 5：工具系统骨架 + 三个文件工具
+    ├── iter-06-design.md            #   迭代 6：ReAct Agent 循环
+    ├── iter-07-design.md            #   迭代 7：TUI 接入（总览）
+    │   ├── iter-07a-design.md       #     7a：TUI 展示层（Spectre.Console Live + 状态栏 + Tab 补全）    
+    │   ├── iter-07b-design.md       #     7b：HITL 交互层
+    │   └── iter-07c-design.md       #     7c：TUI 库迁移（Spectre.Console → Terminal.Gui v2）
+    │       ├── iter-07c-1-design.md #       7c-1：Terminal.Gui 基础设施 + 三段式静态布局
+    │       ├── iter-07c-2-design.md #       7c-2：事件流接入 + 流式渲染
+    │       └── iter-07c-3-design.md #       7c-3：HITL 模态对话框 + Spinner + 收尾
+    ├── iter-08-design.md            #   迭代 8：安全纵深防御（总览）
+    │   ├── iter-08a-design.md       #     8a：安全核心（SecurityLevel + Blacklist + PathSandbox）
+    │   ├── iter-08b-design.md       #     8b：安全管线编排 + Agent 集成
+    │   └── iter-08c-design.md       #     8c：配置扩展 + 装配 + 端到端验收
+    ├── iter-09-design.md            #   迭代 9：上下文管理（截断 + 摘要 + 压缩）
+    ├── iter-10-design.md            #   迭代 10：斜杠命令 + 会话持久化 + 项目指令（总览）
+    │   ├── iter-10a-design.md       #     10a：斜杠命令系统骨架
+    │   ├── iter-10b-design.md       #     10b：JSONL 会话持久化
+    │   └── iter-10c-design.md       #     10c：项目指令
+    ├── iter-11-design.md            #   迭代 11：MCP 协议客户端（总览）
+    │   ├── iter-11a-design.md       #     11a：JSON-RPC 协议层 + Stdio 传输
+    │   ├── iter-11b-design.md       #     11b：MCP 客户端 + 工具适配器
+    │   └── iter-11c-design.md       #     11c：HTTP SSE 传输 + 连接管理器
+    ├── iter-12-design.md            #   迭代 12：Skill 系统
+    ├── iter-13-design.md            #   迭代 13：Skill 目录化与三层加载 + /skill 管理命令（总览）
+    │   ├── iter-13a-design.md       #     13a：Skill 目录化与三层加载
+    │   └── iter-13b-design.md       #     13b：/skill 管理命令
+    └── iter-14-design.md            #   迭代 14：子 Agent（总览）
+        ├── iter-14a-design.md       #     14a：角色系统与三层工具过滤
+        └── iter-14b-design.md       #     14b：SubAgentRunner + sub_agent 工具 + 装配
 ```
 
 ## 快速开始
