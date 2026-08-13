@@ -36,6 +36,9 @@
 | `sub_agent` 动作能起子 Agent | 端到端 E4：session_end + sub_agent | `ActionExecutor.SetSubAgentRunner` 注入后调 `SubAgentRunner.RunAsync` |
 | Hook 失败不中断主循环 | 单测：mock 动作抛异常 | `ActionExecutor.ExecuteAsync` try-catch（15a 已实现） |
 | 拦截原因回灌 LLM | 端到端 E2：检查 LLM 收到 `[Hook 拦截]` | `ToolResult.Fail($"[Hook 拦截] {rejection}")` |
+| ToolCall.Input 是 JsonElement 非 Dictionary | 已验证（见第八节） | `ParseToolParams` 递归转换 JsonElement → Dictionary |
+| AgentLoop 每轮新建导致 HookEngine 状态丢失 | 已验证（见第八节） | HookEngine 存为 TerminalApp 字段，跨轮复用 |
+| AgentLoop 构造函数追加参数兼容性 | 已验证（见第八节） | `HookEngine?` 作为最后可选参数，既有调用用命名参数不 break |
 
 ### 1.3 非目标（15b 明确不做）
 
@@ -1395,6 +1398,11 @@ rm -rf d:\cs\ParrotCode.Net\.parrotcode-e2e
 | `system_error` Hook 在 CancellationToken 已取消时触发 | `FireAsync` 传 `CancellationToken.None` |
 | 端到端 E4 需要 LLM 可用 | sub_agent 动作失败不中断退出（ActionExecutor 错误隔离）。如果 LLM 不可用，验收改为检查"sub_agent 动作被调用但失败"日志 |
 | 端到端 E2 的正则路径在 Windows 上匹配 | Windows 路径用 `\\\\`（YAML 转义后正则为 `\\`）。验收时测试 `C:\Windows\` 路径 |
+| **ToolCall.Input 是 JsonElement 非 Dictionary**（已验证） | `ParseToolParams` 递归转换：Object→Dict, String→string, Number→GetRawText, Bool→bool, Null→null。详见第八节 |
+| **AgentLoop 每轮新建导致 HookEngine 状态丢失**（已验证） | HookEngine 在 TerminalApp 构造函数中创建一次，存为 `_hookEngine` 字段。每轮 `StartAgentRound` 传同一实例给 AgentLoop + SecureBatchToolExecutor。与 `_securityGuard` / `_compressor` 同模式。详见第八节 |
+| **SecureBatchToolExecutor 注入 HookEngine 兼容性**（已验证） | 构造函数追加 `HookEngine? hookEngine = null` 可选参数。既有调用（测试 + TerminalApp）不传此参数时默认 null，行为等价改动前。详见第八节 |
+| **SetSubAgentRunner 调用时序**（已验证） | TerminalApp 构造函数中的创建顺序：① HookEngine（App.cs 传入）→ ② `_history` → ③ SubAgentRunner → ④ `_hookEngine?.Actions.SetSubAgentRunner(runner, parentHistory: _history)`。详见第八节 |
+| **AgentLoop 构造函数追加参数兼容性**（已验证） | `HookEngine?` 作为倒数第二个可选参数（`logger` 之前）。既有调用 [TerminalApp.cs:469-476](../ParrotCode.Net/Tui/TerminalApp.cs#L469-L476) 使用命名参数（`compressor:` / `logger:`），追加可选参数不 break。详见第八节 |
 
 ---
 
@@ -1445,3 +1453,248 @@ rm -rf d:\cs\ParrotCode.Net\.parrotcode-e2e
 - [ ] 端到端 E5：system_compress + shell 通知
 - [ ] 端到端 E6：enable: false 旁路
 - [ ] 端到端 E7：once: true 只触发一次
+
+---
+
+## 八、技术风险验证记录
+
+> 本节记录编码前已验证的技术风险及规避方案，避免实现时踩坑。验证基于对既有源码的静态分析。
+
+### 8.1 ToolCall.Input 是 JsonElement，非 Dictionary（已验证，中风险）
+
+**验证方式**：读取 [Providers/MessageTypes.cs:50](../ParrotCode.Net/Providers/MessageTypes.cs#L50) 确认 ToolCall 定义。
+
+**验证结果**：
+
+```csharp
+// Providers/MessageTypes.cs:50
+public sealed record ToolCall(string Id, string Name, JsonElement Input);
+```
+
+`Input` 字段类型是 `JsonElement`（System.Text.Json），不是 `Dictionary<string, object?>`。Hook 上下文需要 `Dictionary<string, object?>` 以支持 ConditionEvaluator 的 dot-path 解析（如 `params.path` → `context["params"]["path"]`）和 TemplateEngine 的模板替换（如 `{{params.path}}`）。
+
+**根因**：ToolCall 的参数来自 LLM 的 JSON 响应，Provider 层用 `JsonElement` 透传，未转为 Dictionary。
+
+**规避方案**（已写入设计第 3.2 节）：
+
+在 `SecureBatchToolExecutor.OnBeforeExecuteAsync` 中调用 `ParseToolParams(call.Input)` 将 JsonElement 递归转为 Dictionary：
+
+```csharp
+private static Dictionary<string, object?> ParseToolParams(JsonElement input)
+{
+    var result = new Dictionary<string, object?>(StringComparer.Ordinal);
+    if (input.ValueKind != JsonValueKind.Object)
+        return result;
+
+    foreach (var prop in input.EnumerateObject())
+    {
+        result[prop.Name] = prop.Value.ValueKind switch
+        {
+            JsonValueKind.String => (string?)prop.Value.GetString(),
+            JsonValueKind.Number => prop.Value.GetRawText(),
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Null => null,
+            JsonValueKind.Object => ParseToolParams(prop.Value),  // 递归嵌套对象
+            _ => prop.Value.GetRawText()
+        };
+    }
+    return result;
+}
+```
+
+**转换规则**：
+
+| JsonValueKind | 转换为 | 说明 |
+|--------------|--------|------|
+| Object | `Dictionary<string, object?>` | 递归解析嵌套对象 |
+| String | `string?` | `GetString()` |
+| Number | `string` | `GetRawText()`（保留原始数字格式） |
+| True / False | `bool` | 直接映射 |
+| Null | `null` | null 值 |
+| Array | `string` | `GetRawText()`（数组不拆解，整体作为字符串） |
+
+**使用位置**：`OnBeforeExecuteAsync` 构造 context 时：
+
+```csharp
+var context = new Dictionary<string, object?>
+{
+    ["tool_name"] = call.Name,
+    ["tool_call_id"] = call.Id,
+    ["params"] = ParseToolParams(call.Input)   // ← JsonElement → Dictionary
+};
+```
+
+### 8.2 AgentLoop 每轮新建导致 HookEngine 状态丢失（已验证，中风险）
+
+**验证方式**：读取 [Tui/TerminalApp.cs:450-479](../ParrotCode.Net/Tui/TerminalApp.cs#L450-L479) 确认 AgentLoop 创建方式。
+
+**验证结果**：
+
+```csharp
+// TerminalApp.cs:450 — StartAgentRound 每次用户输入都调
+private void StartAgentRound()
+{
+    // ...
+    var agentLoop = new AgentLoop(_provider,     // ← 每轮新建
+                                  _registry!,
+                                  batchExecutor,
+                                  _agentConfig.MaxRounds ?? 10,
+                                  /* ... */);
+    _agentTask = agentLoop.RunAsync(_history!, _sink, _ct);
+}
+```
+
+AgentLoop 在 `StartAgentRound` 中**每轮新建**——不是单例。如果 HookEngine 也每轮新建，`once: true` 规则的 `_firedOnce` HashSet 会被重置，导致同一会话内 once 规则每轮都触发（违背 once 语义）。
+
+**规避方案**（已写入设计第 3.6 节）：
+
+HookEngine 在 **App.cs 中创建一次**，通过 TerminalApp 构造函数注入为 `_hookEngine` 字段（与 `_securityGuard` / `_compressor` 同模式——都是跨轮复用的依赖）。每轮 `StartAgentRound` 把同一 `_hookEngine` 实例传给新建的 AgentLoop 和 SecureBatchToolExecutor：
+
+```
+App.cs
+  └─ HookLoader.Load() → hookEngine（单例）
+  └─ new TerminalApp(..., hookEngine, ...)
+       └─ _hookEngine 字段（跨轮复用）
+       └─ StartAgentRound()
+            └─ new SecureBatchToolExecutor(..., hookEngine: _hookEngine, ...)
+            └─ new AgentLoop(..., hookEngine: _hookEngine, ...)
+```
+
+**session 级重置**：`RunAgentWithHooksAsync` 在 `session_start` 前调 `_hookEngine.ResetOnce()`，清除上一会话的 once 跟踪。这保证 once 语义是"同一会话内只触发一次"，跨会话重新触发。
+
+### 8.3 SecureBatchToolExecutor 注入 HookEngine 的兼容性（已验证，低风险）
+
+**验证方式**：读取 [Security/SecureBatchToolExecutor.cs:14-24](../ParrotCode.Net/Security/SecureBatchToolExecutor.cs#L14-L24) 确认构造函数签名 + 搜索所有 `new SecureBatchToolExecutor` 调用点。
+
+**验证结果**：
+
+当前构造函数：
+
+```csharp
+public SecureBatchToolExecutor(
+    ToolExecutor executor,
+    ToolRegistry registry,
+    SecurityGuard guard,
+    int maxParallelism = 5,
+    IHitlGate? hitlGate = null,
+    ILogger? logger = null)
+```
+
+调用点：
+- [TerminalApp.cs:461-466](../ParrotCode.Net/Tui/TerminalApp.cs#L461-L466) — 使用命名参数 `hitlGate:` / `logger:`
+- 测试文件中的调用 — 使用位置参数或命名参数
+
+**规避方案**：追加 `HookEngine? hookEngine = null` 作为 `hitlGate` 之后、`logger` 之前的可选参数。既有调用不传此参数时默认 null，`OnBeforeExecuteAsync` 中 `if (_hookEngine is not null)` 保护——null 时行为等价改动前。
+
+```csharp
+public SecureBatchToolExecutor(
+    ToolExecutor executor,
+    ToolRegistry registry,
+    SecurityGuard guard,
+    int maxParallelism = 5,
+    IHitlGate? hitlGate = null,
+    HookEngine? hookEngine = null,          // ← 新增（在 hitlGate 之后）
+    ILogger? logger = null)
+```
+
+**兼容性验证**：
+- TerminalApp 调用使用 `hitlGate: hitlGate, _logger`（命名 + 位置混合）→ 需改为 `hitlGate: hitlGate, hookEngine: _hookEngine, _logger`
+- 既有测试不传 hookEngine → 默认 null → `if (_hookEngine is not null)` 跳过 Hook 逻辑 → 行为等价改动前
+
+### 8.4 SetSubAgentRunner 的调用时序（已验证，低风险）
+
+**验证方式**：读取 [Tui/TerminalApp.cs:156-169](../ParrotCode.Net/Tui/TerminalApp.cs#L156-L169) 确认 SubAgentRunner 创建位置 + _history 创建位置。
+
+**验证结果**：
+
+当前 TerminalApp 中的创建顺序：
+
+```
+Line 156:  _history = new ConversationHistory();
+Line 160:  if (_roleRegistry is not null && (_subAgentConfig.Enable ?? true))
+Line 162:      var runner = new SubAgentRunner(...);
+Line 168:      _registry.Register(new SubAgentTool(runner, _history));
+```
+
+`SetSubAgentRunner` 需要在 SubAgentRunner 创建之后调用，且需要 `_history` 引用（Fork 模式用）。
+
+**规避方案**（已写入设计第 3.6 节）：
+
+在 SubAgentRunner 创建 + SubAgentTool 注册之后追加 `SetSubAgentRunner` 调用：
+
+```csharp
+// TerminalApp 构造函数中的创建顺序：
+// ① HookEngine（App.cs 构造函数传入，存为 _hookEngine 字段）
+// ② _history = new ConversationHistory()
+// ③ SubAgentRunner 创建 + SubAgentTool 注册
+// ④ _hookEngine?.Actions.SetSubAgentRunner(runner, parentHistory: _history)  ← 新增
+
+if (_roleRegistry is not null && (_subAgentConfig.Enable ?? true))
+{
+    _subAgentRunner = new SubAgentRunner(_provider, _registry!, _securityGuard,
+                                         _roleRegistry, _subAgentConfig, logger: null);
+    _registry.Register(new SubAgentTool(_subAgentRunner, _history!));
+
+    // 【迭代 15b】注入到 HookEngine（sub_agent 动作用）
+    _hookEngine?.Actions.SetSubAgentRunner(_subAgentRunner, parentHistory: _history);
+}
+```
+
+**安全保护**：即使 SetSubAgentRunner 未被调用（如 `_hookEngine` 为 null 或 SubAgent 未启用），`ExecSubAgentAsync` 检查 `_subAgentRunner is null` 后记警告并跳过——不会抛异常。
+
+### 8.5 AgentLoop 构造函数追加参数的兼容性（已验证，低风险）
+
+**验证方式**：读取 [Agent/AgentLoop.cs:25-32](../ParrotCode.Net/Agent/AgentLoop.cs#L25-L32) 确认构造函数签名 + [Tui/TerminalApp.cs:469-476](../ParrotCode.Net/Tui/TerminalApp.cs#L469-L476) 确认调用方式。
+
+**验证结果**：
+
+当前构造函数（8 个参数，后 4 个可选）：
+
+```csharp
+public AgentLoop(IBaseProvider provider,           // 必填
+                 ToolRegistry registry,             // 必填
+                 BatchToolExecutor batchExecutor,   // 必填
+                 int maxRounds = 10,                // 可选
+                 string toolChoice = "auto",        // 可选
+                 string? systemPrompt = null,       // 可选
+                 ContextCompressor? compressor = null, // 可选
+                 ILogger? logger = null)            // 可选
+```
+
+TerminalApp 调用方式（使用命名参数）：
+
+```csharp
+var agentLoop = new AgentLoop(_provider,
+                              _registry!,
+                              batchExecutor,
+                              _agentConfig.MaxRounds ?? 10,
+                              _agentConfig.ToolChoice ?? "auto",
+                              _systemPromptWithInstructions,
+                              compressor: _compressor,   // ← 命名参数
+                              logger: null);              // ← 命名参数
+```
+
+**规避方案**：在 `compressor` 之后、`logger` 之前追加 `HookEngine? hookEngine = null`：
+
+```csharp
+public AgentLoop(IBaseProvider provider,
+                 ToolRegistry registry,
+                 BatchToolExecutor batchExecutor,
+                 int maxRounds = 10,
+                 string toolChoice = "auto",
+                 string? systemPrompt = null,
+                 ContextCompressor? compressor = null,
+                 HookEngine? hookEngine = null,    // ← 新增
+                 ILogger? logger = null)
+```
+
+**兼容性分析**：
+
+| 调用方 | 调用方式 | 是否 break | 原因 |
+|--------|---------|-----------|------|
+| TerminalApp.StartAgentRound | `compressor: _compressor, logger: null` | **不 break** | 命名参数，新增参数在中间不影响 |
+| 既有测试（位置参数） | `new AgentLoop(provider, registry, executor)` | **不 break** | 只用前 3 个必填参数，新参数有默认值 |
+| 既有测试（全命名参数） | `compressor: null, logger: null` | **不 break** | 命名参数，新增参数在中间不影响 |
+
+**结论**：追加 `HookEngine? hookEngine = null` 作为 `compressor` 之后、`logger` 之前的可选参数，对既有调用方零 break。
