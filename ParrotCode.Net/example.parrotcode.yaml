@@ -114,3 +114,12 @@ sub_agent:
   max_rounds: 5                    # 子 Agent 最大轮次（比主 Agent 少，防止失控）
   report_max_chars: 2000           # 报告最大字符数（超长截断）
   max_concurrent_background: 3     # 最大并发后台任务数（后台模式预留）
+
+# 迭代 15 新增：Hook 引擎（生命周期事件 + 条件触发 + 4 种动作）
+hooks:
+  enable: false                    # 是否启用 Hook 引擎（默认 false——Hook 可执行 shell/http，安全敏感，需显式开启）
+  # Hook 规则文件位置（两级加载，合并生效）：
+  #   全局：~/.parrotcode/hooks.yaml
+  #   项目：./.parrotcode/hooks.yaml
+  #
+  # 配置示例见 .docs/iter-15b-design.md 第五节"端到端验收"

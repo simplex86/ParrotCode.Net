@@ -18,13 +18,9 @@ public sealed class ActionExecutor
     private readonly HttpClient _httpClient;
     private readonly ILogger? _logger;
 
-    // 15b 追加：sub_agent 动作用的子 Agent 运行器（setter 注入）
-    // 15a 中这些字段未被赋值（SetSubAgentRunner 为空壳），15b 取消注释填充
-#pragma warning disable CS0649, CS0169 // 字段从未赋值/未使用——15b 中 SetSubAgentRunner 填充
+    // 15b：sub_agent 动作用的子 Agent 运行器（setter 注入）
     private SubAgentRunner? _subAgentRunner;
-    private BackgroundTaskManager? _backgroundTaskManager;
     private ConversationHistory? _parentHistory;
-#pragma warning restore CS0649, CS0169
 
     /// <summary>
     /// 构造函数。接受 HttpMessageHandler（而非 HttpClient）以支持单测 mock。
@@ -42,17 +38,14 @@ public sealed class ActionExecutor
 
     /// <summary>
     /// 注入 SubAgentRunner（15b 中 TerminalApp.RunAsync 调用）。
-    /// 15a 中此方法为空壳——sub_agent 动作会记警告并跳过。
+    /// runner 为 null 时 sub_agent 动作记警告并跳过。
     /// </summary>
     public void SetSubAgentRunner(SubAgentRunner? runner,
                                    BackgroundTaskManager? backgroundManager = null,
                                    ConversationHistory? parentHistory = null)
     {
-        // 15a：空实现（_subAgentRunner 保持 null，sub_agent 动作跳过）
-        // 15b：取消注释填充实现
-        // _subAgentRunner = runner;
-        // _backgroundTaskManager = backgroundManager;
-        // _parentHistory = parentHistory;
+        _subAgentRunner = runner;
+        _parentHistory = parentHistory;
     }
 
     /// <summary>
@@ -191,17 +184,37 @@ public sealed class ActionExecutor
 
     // ===== sub_agent（15b 实现）=====
 
-    private Task<string?> ExecSubAgentAsync(HookAction action, Dictionary<string, object?> context, CancellationToken ct)
+    private async Task<string?> ExecSubAgentAsync(HookAction action, Dictionary<string, object?> context, CancellationToken ct)
     {
-        // 15a：sub_agent 动作未实现，记警告并跳过
-        // 15b：取消下方注释填充实现
         if (_subAgentRunner is null)
         {
-            _logger?.LogWarning("Hook sub_agent 动作未注入 SubAgentRunner，跳过（15a 未实现，需 15b 接入）");
-            return Task.FromResult<string?>(null);
+            _logger?.LogWarning("Hook sub_agent 动作未注入 SubAgentRunner，跳过");
+            return null;
         }
 
-        // 15b 实现代码见 iter-15b-design.md 第 3.1 节
-        return Task.FromResult<string?>(null);
+        var task = _templates.Render(action.Task, context);
+
+        // 解析 SubAgentMode（大小写不敏感）
+        if (!Enum.TryParse<SubAgentMode>(action.Mode, ignoreCase: true, out var mode))
+        {
+            _logger?.LogWarning("Hook sub_agent 动作无效的 mode '{Mode}'，默认用 Definitional", action.Mode);
+            mode = SubAgentMode.Definitional;
+        }
+
+        // Fork 模式传父历史，Definitional 模式传 null
+        var parentHistory = mode == SubAgentMode.Fork ? _parentHistory : null;
+
+        var request = new SubAgentRequest { Task = task, Role = action.Role, Mode = mode };
+        var result = await _subAgentRunner.RunAsync(request, parentHistory, ct);
+
+        if (!result.Success)
+        {
+            _logger?.LogWarning("Hook sub_agent 动作失败：{Error}", result.Error);
+            return result.Error;
+        }
+
+        // 截断超长报告
+        var report = result.Report ?? string.Empty;
+        return report.Length > 2000 ? report[..2000] + "\n...（截断）" : report;
     }
 }

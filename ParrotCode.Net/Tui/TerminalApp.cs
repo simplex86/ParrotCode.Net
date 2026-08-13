@@ -30,6 +30,7 @@ internal sealed class TerminalApp : IUiControl, IDisposable
     private readonly SkillExecutor? _skillExecutor;  // 迭代 12 新增：Skill 执行器
     private readonly RoleRegistry? _roleRegistry;  // 迭代 14 新增：子 Agent 角色注册表
     private readonly SubAgentConfig _subAgentConfig;  // 迭代 14 新增：子 Agent 配置
+    private readonly HookEngine? _hookEngine;  // 迭代 15 新增：Hook 引擎（null = 未启用）
     private string? _mcpStartupInfo;  // MCP 连接状态，待 ChatView 创建后显示
     private readonly ILogger? _logger;
     private readonly CancellationToken _ct;
@@ -68,6 +69,7 @@ internal sealed class TerminalApp : IUiControl, IDisposable
                        SkillExecutor? skillExecutor,      // 迭代 12 新增
                        RoleRegistry? roleRegistry,        // 迭代 14 新增
                        SubAgentConfig? subAgentConfig,    // 迭代 14 新增
+                       HookEngine? hookEngine,            // 迭代 15 新增
                        ILogger? logger,
                        CancellationToken ct)
     {
@@ -85,6 +87,7 @@ internal sealed class TerminalApp : IUiControl, IDisposable
         _skillExecutor = skillExecutor;
         _roleRegistry = roleRegistry;
         _subAgentConfig = subAgentConfig ?? new SubAgentConfig();
+        _hookEngine = hookEngine;
         _logger = logger;
         _ct = ct;
 
@@ -117,7 +120,7 @@ internal sealed class TerminalApp : IUiControl, IDisposable
         "你是 Parrot Code！为学习而开发的 AI 编程助手。你可以调用工具读写文件、执行命令、搜索代码。" +
         "每次只调用必要的工具，拿到结果后用简洁中文回复用户。";
 
-    public Task RunAsync()
+    public async Task RunAsync()
     {
         // 1. 装配工具注册中心
         _registry = new ToolRegistry();
@@ -166,6 +169,9 @@ internal sealed class TerminalApp : IUiControl, IDisposable
                                             _subAgentConfig,
                                             logger: null);  // TUI 模式 logger 传 null，避免 stderr 交错
             _registry.Register(new SubAgentTool(runner, _history));
+
+            // 【迭代 15b】注入到 HookEngine（sub_agent 动作用）
+            _hookEngine?.Actions.SetSubAgentRunner(runner, parentHistory: _history);
         }
 
         // 2. Terminal.Gui 初始化
@@ -194,13 +200,19 @@ internal sealed class TerminalApp : IUiControl, IDisposable
         // 5. 注册 AddIdle 状态机——分帧处理输入和事件流，不阻塞事件循环
         Application.AddIdle(IdleCallback);
 
+        // 迭代 15b：session_start Hook（在 Application.Run 前、所有初始化完成后触发）
+        if (_hookEngine is not null)
+            await _hookEngine.FireAsync(HookEvent.SessionStart, new() { ["project_root"] = Directory.GetCurrentDirectory() }, _ct);
+
         // 6. 运行应用（阻塞直到 RequestStop）
         Application.Run(_top!);
 
+        // 迭代 15b：session_end Hook（Application.Run 返回后触发）
+        if (_hookEngine is not null)
+            await _hookEngine.FireAsync(HookEvent.SessionEnd, new() { ["project_root"] = Directory.GetCurrentDirectory() }, CancellationToken.None);
+
         // 7. 清理
         Application.Shutdown();
-
-        return Task.CompletedTask;
     }
 
     private void BuildLayout()
@@ -458,11 +470,12 @@ internal sealed class TerminalApp : IUiControl, IDisposable
         // 8c：装配 SecureBatchToolExecutor（注入 SecurityGuard）
         // 同步当前档位（_securityLevel 当前是构造时固定；为迭代 10 /mode 运行时切换预留）
         _securityGuard.Level = _securityLevel;
-        var batchExecutor = new SecureBatchToolExecutor(executor, 
-                                                        _registry!, 
+        var batchExecutor = new SecureBatchToolExecutor(executor,
+                                                        _registry!,
                                                         _securityGuard,
                                                         _agentConfig.MaxParallelism ?? 5,
                                                         hitlGate: hitlGate,
+                                                        hookEngine: _hookEngine,  // 迭代 15 新增
                                                         _logger);
 
         _sink = new ChannelEventSink();
@@ -473,6 +486,7 @@ internal sealed class TerminalApp : IUiControl, IDisposable
                                       _agentConfig.ToolChoice ?? "auto",
                                       _systemPromptWithInstructions,  // 10c 改：用含指令的 prompt
                                       compressor: _compressor,  // 迭代 9 新增
+                                      hookEngine: _hookEngine,  // 迭代 15 新增
                                       logger: null);  // 不给 logger，避免 stderr 交错
 
         _agentTask = agentLoop.RunAsync(_history!, _sink, _ct);

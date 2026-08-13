@@ -74,6 +74,11 @@ public sealed record AppConfig
     /// 子 Agent 系统配置（迭代 14 新增）。null 时用默认值。
     /// </summary>
     public SubAgentConfig? SubAgent { get; init; }
+
+    /// <summary>
+    /// Hook 引擎配置（迭代 15 新增）。null 时用默认值。
+    /// </summary>
+    public HooksConfig? Hooks { get; init; }
 }
 
 /// <summary>
@@ -286,4 +291,16 @@ public sealed record InstructionsConfig
     /// 自定义项目指令文件路径（覆盖默认的 ./PARROTCODE.md）。
     /// </summary>
     public string? ProjectInstructionsPath { get; init; }
+}
+
+/// <summary>
+/// Hook 引擎配置（迭代 15 新增）。所有字段可选，缺省用默认值。
+/// </summary>
+public sealed record HooksConfig
+{
+    /// <summary>
+    /// 是否启用 Hook 引擎。默认 false（Hook 可执行 shell/http，安全敏感，需显式开启）。
+    /// false 时不加载 Hook 规则，HookEngine 传 null。
+    /// </summary>
+    public bool? Enable { get; init; }
 }

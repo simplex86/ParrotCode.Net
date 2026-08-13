@@ -141,6 +141,19 @@ internal sealed class App
                 _logger.LogInformation("已加载 {Count} 个子 Agent 角色", roles.Count);
         }
 
+        // 【迭代 15】构造 Hook 引擎（条件注入）
+        // hooks.enable 默认 false（Hook 可执行 shell/http，安全敏感，需显式开启）
+        var hooksConfig = _config.Hooks ?? new HooksConfig();
+        HookEngine? hookEngine = null;
+        if (hooksConfig.Enable ?? false)
+        {
+            var hookLoader = new HookLoader(projectRoot: projectRoot, logger: _logger);
+            var hookRules = hookLoader.Load();
+            hookEngine = new HookEngine(hookRules, logger: _logger);
+            if (hookRules.Count > 0)
+                _logger.LogInformation("已加载 {Count} 条 Hook 规则", hookRules.Count);
+        }
+
         using var terminalApp = new TerminalApp(_provider,
                                                 _providerConfig,
                                                 _config.Agent,
@@ -155,9 +168,19 @@ internal sealed class App
                                                 skillExecutor,        // 迭代 12 新增
                                                 roleRegistry,         // 迭代 14 新增
                                                 subAgentConfig,       // 迭代 14 新增
+                                                hookEngine,           // 迭代 15 新增
                                                 _logger,
                                                 _ct);
+
+        // 迭代 15b：system_startup Hook
+        if (hookEngine is not null)
+            await hookEngine.FireAsync(HookEvent.SystemStartup, new() { ["project_root"] = projectRoot }, _ct);
+
         await terminalApp.RunAsync();
+
+        // 迭代 15b：system_shutdown Hook
+        if (hookEngine is not null)
+            await hookEngine.FireAsync(HookEvent.SystemShutdown, new() { ["project_root"] = projectRoot }, CancellationToken.None);
 
         // 程序退出时关闭 MCP 连接
         if (mcpManager is not null)

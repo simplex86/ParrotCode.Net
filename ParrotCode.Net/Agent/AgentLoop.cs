@@ -20,6 +20,7 @@ internal sealed class AgentLoop
     private readonly string _toolChoice;
     private readonly string _systemPrompt;
     private readonly ContextCompressor? _compressor;  // 迭代 9 新增（null = 不做上下文管理，测试用）
+    private readonly HookEngine? _hookEngine;  // 迭代 15b 新增（null = Hook 未启用）
     private readonly ILogger? _logger;
 
     public AgentLoop(IBaseProvider provider,
@@ -29,6 +30,7 @@ internal sealed class AgentLoop
                      string toolChoice = "auto",
                      string? systemPrompt = null,
                      ContextCompressor? compressor = null,
+                     HookEngine? hookEngine = null,
                      ILogger? logger = null)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
@@ -39,6 +41,7 @@ internal sealed class AgentLoop
         _toolChoice = toolChoice;
         _systemPrompt = systemPrompt ?? DefaultSystemPrompt;
         _compressor = compressor;
+        _hookEngine = hookEngine;
         _logger = logger;
     }
 
@@ -67,6 +70,11 @@ internal sealed class AgentLoop
         catch (Exception ex)
         {
             _logger?.LogError(ex, "AgentLoop 致命错误");
+            if (_hookEngine is not null)
+            {
+                try { await _hookEngine.FireAsync(HookEvent.SystemError, new() { ["error"] = ex.Message, ["exception"] = ex.GetType().Name }, CancellationToken.None); }
+                catch { /* Hook 失败不中断错误处理 */ }
+            }
             await sink.WriteAsync(new AgentEvent.ErrorEvent(ex.Message, ex), CancellationToken.None);
         }
         finally
@@ -84,6 +92,10 @@ internal sealed class AgentLoop
             cancellationToken.ThrowIfCancellationRequested();
             await sink.WriteAsync(new AgentEvent.RoundStartEvent(round), cancellationToken);
 
+            // 迭代 15b：round_start Hook
+            if (_hookEngine is not null)
+                await _hookEngine.FireAsync(HookEvent.RoundStart, new() { ["round"] = round }, cancellationToken);
+
             // 迭代 9：层 2 压缩检查（每轮 LLM 调用前）
             if (_compressor is not null)
             {
@@ -91,7 +103,12 @@ internal sealed class AgentLoop
                 if (compression.WarningIssued && compression.WarningMessage is not null)
                     await sink.WriteAsync(new AgentEvent.ContextWarningEvent(compression.WarningMessage), cancellationToken);
                 if (compression.WasCompressed)
+                {
                     await sink.WriteAsync(new AgentEvent.ContextCompressedEvent(compression.MessagesCompressed, compression.EstimatedTokensSaved), cancellationToken);
+                    // 迭代 15b：system_compress Hook
+                    if (_hookEngine is not null)
+                        await _hookEngine.FireAsync(HookEvent.SystemCompress, new() { ["messages_compressed"] = compression.MessagesCompressed, ["tokens_saved"] = compression.EstimatedTokensSaved }, cancellationToken);
+                }
             }
 
             // 构造消息：system prompt + 历史快照
@@ -100,6 +117,10 @@ internal sealed class AgentLoop
             // 流式调用 LLM
             var textBuf = new StringBuilder();
             var tcAcc = new ToolCallAccumulator();
+
+            // 迭代 15b：message_pre_send Hook
+            if (_hookEngine is not null)
+                await _hookEngine.FireAsync(HookEvent.MessagePreSend, new() { ["round"] = round }, cancellationToken);
 
             await foreach (var chunk in _provider.ChatStreamAsync(messages, tools, _toolChoice, cancellationToken))
             {
@@ -134,6 +155,10 @@ internal sealed class AgentLoop
             {
                 await sink.WriteAsync(new AgentEvent.AssistantMessageEvent(assistantText), cancellationToken);
             }
+
+            // 迭代 15b：message_post_receive Hook
+            if (_hookEngine is not null)
+                await _hookEngine.FireAsync(HookEvent.MessagePostReceive, new() { ["round"] = round, ["text"] = assistantText, ["tool_calls"] = toolCalls.Count }, cancellationToken);
 
             // 无工具调用 → Agent 完成
             if (toolCalls.Count == 0)
@@ -193,6 +218,10 @@ internal sealed class AgentLoop
             }
 
             await sink.WriteAsync(new AgentEvent.RoundEndEvent(round), cancellationToken);
+
+            // 迭代 15b：round_end Hook
+            if (_hookEngine is not null)
+                await _hookEngine.FireAsync(HookEvent.RoundEnd, new() { ["round"] = round }, cancellationToken);
         }
 
         // 达到最大轮次
