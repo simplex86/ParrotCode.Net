@@ -637,33 +637,62 @@ SubAgent/
 
 ## 迭代 15：Hook 引擎
 
+> 总览设计见 `.docs/iter-15-design.md`。拆分为两个正交子迭代：
+> - **15a：Hook 核心引擎** → 见 `.docs/iter-15a-design.md`
+> - **15b：Hook 集成接入** → 见 `.docs/iter-15b-design.md`
+
 ### 学习目标
 - 生命周期事件钩子，实现"工具执行前自动跑脚本"等自动化。
 
 ### 交付物
 - `Hooks/` 模块：12 种事件 + 条件匹配 + 4 种动作。
 
+### 拆分说明
+
+本迭代拆分为两个正交子迭代（改动文件不重叠），与 13a/13b、14a/14b 同构：
+
+| | 15a：Hook 核心引擎 | 15b：Hook 集成接入 |
+|---|---|---|
+| **层次** | 加载层 + 纯逻辑层 | 执行层 + 集成层 |
+| **改动** | 6 个新文件（`Hooks/` 全套），Actions 只实现 shell/prompt_inject/http | Actions 追加 sub_agent + 修改 6 个既有文件（Config/Secure/AgentLoop/App/Tui/yaml） |
+| **风险** | 低（零既有文件改动） | 中（修改 AgentLoop 核心循环 + SecureBatchToolExecutor 安全链路） |
+| **验收** | 73 项单测（纯逻辑） | 36 项功能验收 + 7 项端到端验收 |
+
 ### 影响文件
 ```
 Hooks/
-├── Models.cs                  # Rule / Condition / Action
-├── Conditions.cs              # exact/not/regex/glob + ALL/ANY
-├── Templates.cs               # {{var}} 替换
-├── Actions.cs                 # shell / prompt_inject / http / sub_agent
-├── Loader.cs                  # YAML 加载 + 集中校验
-└── Engine.cs                  # HookEngine
+├── Models.cs                  # HookEvent(12) / HookOperator(4) / HookMatchMode / HookActionType(4) / ConditionRule / HookCondition / HookAction / HookControl / HookRule     [15a]
+├── Conditions.cs              # ConditionEvaluator（exact/not/regex/glob + ALL/ANY + dot-path）                                                                          [15a]
+├── Templates.cs               # TemplateEngine（{{var}} dot-path 替换）                                                                                                          [15a]
+├── Actions.cs                 # ActionExecutor（shell/prompt_inject/http [15a] + sub_agent [15b] + 错误隔离 + SetSubAgentRunner）                                              [15a+15b]
+├── Loader.cs                  # HookLoader（两级 YAML 加载 + 集中校验）                                                                                                          [15a]
+└── Engine.cs                  # HookEngine（FireAsync + once 跟踪 + ResetOnce）                                                                                                  [15a]
 ```
 
+15b 修改文件：`Config/Models.cs`（HooksConfig）+ `Security/SecureBatchToolExecutor.cs`（tool_pre_exec 拦截）+ `Agent/AgentLoop.cs`（生命周期 fire 调用）+ `App/App.cs`（装配 + system_startup/shutdown）+ `Tui/TerminalApp.cs`（传参 + session_start/end + SetSubAgentRunner）+ `example.parrotcode.yaml` + 新增 `.parrotcode/hooks.yaml.example`。
+
 ### 关键设计点
-- **Hook 12 种事件**：会话/轮次/消息/工具/系统五类。`tool_pre_exec` 可返回拒绝原因 → LLM 收到调整（拦截能力）。
-- **Hook 4 种动作**：`shell`（跑命令）/ `prompt_inject`（注入提示）/ `http`（调 webhook）/ `sub_agent`（起子 Agent，依赖迭代 14 的 `SubAgentRunner`）。
-- **错误隔离**：Hook 失败只记日志，不中断 Agent 主循环。
+- **Hook 12 种事件**：会话（session_start/end）/ 轮次（round_start/end）/ 消息（message_pre_send/post_receive）/ 工具（tool_pre_exec 拦截 / tool_post_exec 通知）/ 系统五类（system_startup/shutdown/error/compress）。`tool_pre_exec` 可返回拒绝原因 → LLM 收到调整（拦截能力）。
+- **Hook 4 种动作**：`shell`（跑命令）/ `prompt_inject`（注入提示——拦截事件中作为拒绝原因）/ `http`（调 webhook）/ `sub_agent`（起子 Agent，依赖迭代 14 的 `SubAgentRunner`）。
+- **4 种条件算子**：`exact` / `not` / `regex` / `glob`，组合 `ALL` / `ANY` 匹配模式，支持 dot-path 字段（如 `params.path`）。
+- **拦截集成**：`tool_pre_exec` 复用 `BatchToolExecutor.OnBeforeExecuteAsync` 虚方法（迭代 8 预留）——`SecureBatchToolExecutor` 安全检查后追加 Hook 触发。安全层先于 Hook（安全是硬约束，Hook 是用户定制）。
+- **错误隔离**：Hook 失败只记日志，不中断 Agent 主循环。`ActionExecutor` 捕获所有异常，`HookEngine.FireAsync` 不抛异常。
+- **sub_agent 动作时序**：`SubAgentRunner` 在 `_history` 创建后才构造，`ActionExecutor.SetSubAgentRunner` setter 注入解决时序问题。
+- **保守默认**：`hooks.enable` 默认 false（Hook 能执行 shell/http，是安全敏感特性，需显式开启）。
+- **零改动**：`AgentEvent.cs` / `BatchToolExecutor.cs`（OnBeforeExecuteAsync 虚方法已预留）/ `SecurityGuard.cs` / `Tools/` / `Conversation/` / `SubAgent/` / `Skills/` / `Commands/` / `Mcp/`。
 
 ### 验收标准
-- 配置一个 `tool_pre_exec` Hook，在 `write_file` 前自动跑 `git stash`。
+- **15a**：73 项单测（ConditionEvaluator 16 + TemplateEngine 10 + HookLoader 18 + HookEngine 14 + ActionExecutor 15），零既有文件改动，见 `iter-15a-design.md` 第四节。
+- **15b**：36 项功能验收（SecureBatchToolExecutorHook 9 + AgentLoopHook 11 + ActionExecutor sub_agent 4 + TerminalApp/App 8 + HooksConfig 4）+ 7 项端到端验收（含环境配置 + 操作步骤）+ 工程验收（零改动验证），见 `iter-15b-design.md` 第五节。
+- 核心端到端（15b）：配置 `tool_pre_exec` Hook 在 `write_file` 前自动跑 `git stash`（E1）。
+- 核心端到端（15b）：配置 `tool_pre_exec` + `prompt_inject` 拦截写系统目录（E2）。
+- 核心端到端（15b）：配置 `session_end` + `sub_agent` 动作做会话总结（E4）。
 
 ### 进阶练习
 - 配置一个 `http` 动作的 Hook，把每次工具调用事件 POST 到自己的 webhook 做调用审计。
+- `message_pre_send` 扩展为拦截事件，允许 Hook 修改发给 LLM 的消息列表。
+- `/hook reload` 命令运行时热重载 hooks.yaml。
+- `session_end` + `sub_agent` 动作实现跨会话自动笔记（MewCode 的 `notes/` 模块）。
 
 ---
 
