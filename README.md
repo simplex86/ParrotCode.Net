@@ -1,10 +1,10 @@
 # Parrot Code
 
-基于 .NET 8 的终端 AI 编程助手（仿 Claude Code）。编写这个项目的根本目的是学习 Agent 底层原理与工程实现，而不是交付生产级的产品：通过 15+ 个循序渐进的迭代，从零亲手实现 ReAct 循环、工具系统、HITL、安全防御、上下文压缩、MCP、Skill、SubAgent 等 Agent 核心机制，把"Agent 到底是怎么跑起来的"这件事彻底搞清楚。
+基于 .NET 8 的终端 AI 编程助手（仿 Claude Code）。编写这个项目的根本目的是学习 Agent 底层原理与工程实现，而不是交付生产级的产品：通过 15+ 个循序渐进的迭代，从零亲手实现 ReAct 循环、工具系统、HITL、安全防御、上下文压缩、MCP、Skill、SubAgent、Hook 等 Agent 核心机制，把"Agent 到底是怎么跑起来的"这件事彻底搞清楚。
 
 ## 功能特性
 
-当前已实现的能力（对应迭代 1~14）：
+当前已实现的能力（对应迭代 1~15）：
 
 - 多 Provider：OpenAI 兼容协议（以 DeepSeek 为主要联调对象）与 Mock Provider，配置文件三级发现
 - ReAct Agent 循环：事件流架构，AgentLoop 通过 Channel 产出事件、UI 侧消费，生产与展示解耦；读工具并发、写工具串行，带最大轮次保护
@@ -18,7 +18,8 @@
 - 项目指令：项目根目录的 PARROTCODE.md 自动注入对话，支持 @include 嵌套（限 3 层）
 - MCP 客户端：JSON-RPC 2.0 协议，Stdio 子进程与 Streamable HTTP 两种传输，MCP 工具名加 `{server}/{tool}` 前缀防冲突
 - Skill 系统：目录化 SKILL.md + scripts / references / assets 三层按需加载，SOP 两阶段注入，内置 commit / review / test 三个 Skill
-- SubAgent 系统：SubAgent Runner + 角色 + 三层工具过滤 + sub_agent 工具
+- 子 Agent：定义式（空白对话 + 角色 SOP）与 Fork（继承父历史）两种模式，三层工具过滤防止嵌套失控，轮次与报告长度受限，主 Agent 通过 sub_agent 工具发起
+- Hook 引擎：12 种生命周期事件 + 条件匹配（exact / not / regex / glob），支持 shell / prompt_inject / http / sub_agent 四种动作；tool_pre_exec 可拦截工具执行并把拒绝原因回灌 LLM；默认关闭需显式开启，Hook 失败只记日志不中断主循环
 
 ## 架构与目录结构
 
@@ -46,6 +47,7 @@ ParrotCode.Net/
 │   └── Builtin/             # /help /clear /mode /status /session /skill /commit 等
 ├── Config/                  # YAML 配置三级发现与校验
 ├── Conversation/            # 对话历史 + 上下文管理（截断 / 摘要 / 压缩 / 熔断）
+├── Hooks/                   # Hook 引擎（12 种事件 + 条件匹配 + 4 种动作）
 ├── Instructions/            # 项目指令加载（PARROTCODE.md + @include）
 ├── Mcp/                     # MCP 协议客户端
 │   ├── Protocol/            # JSON-RPC 2.0 编解码
@@ -55,8 +57,8 @@ ParrotCode.Net/
 ├── Skills/                  # Skill 系统（两阶段加载）
 │   └── Builtin/             # commit / review / test（目录化 SKILL.md）
 ├── Storage/                 # JSONL 会话持久化
-├── SubAgent/                # SubAgent
-│   └── Roles/               # SubAgent 的角色
+├── SubAgent/                # 子 Agent（Runner + 三层工具过滤 + 后台任务管理）
+│   └── Roles/               # 角色定义（explorer / planner / general）
 ├── Tools/                   # 工具系统（read / write / edit / run / glob / grep）
 ├── Tui/                     # Terminal.Gui v2 全屏界面与 HITL 弹窗
 ├── Program.cs               # 入口
@@ -83,9 +85,9 @@ ParrotCode.Net/
 | [12](.docs/iter-12-design.md) | Skill 系统 | 已完成 |
 | [13](.docs/iter-13-design.md) | Skill 目录化与三层加载 + /skill 命令（拆分为 [13a](.docs/iter-13a-design.md)、[13b](.docs/iter-13b-design.md)） | 已完成 |
 | [14](.docs/iter-14-design.md) | 子 Agent（拆分为 [14a](.docs/iter-14a-design.md)、[14b](.docs/iter-14b-design.md)） | 已完成 |
-| 15 | Hook 引擎 | 未开始 |
+| [15](.docs/iter-15-design.md) | Hook 引擎（拆分为 [15a](.docs/iter-15a-design.md)、[15b](.docs/iter-15b-design.md)） | 已完成 |
 
-前 15 个迭代跑通后，视情况引入可选扩展。
+15 个迭代已全部完成，后续视情况引入可选扩展。
 
 ## 文档导航
 
@@ -126,9 +128,12 @@ ParrotCode.Net/
     ├── iter-13-design.md            #   迭代 13：Skill 目录化与三层加载 + /skill 管理命令（总览）
     │   ├── iter-13a-design.md       #     13a：Skill 目录化与三层加载
     │   └── iter-13b-design.md       #     13b：/skill 管理命令
-    └── iter-14-design.md            #   迭代 14：子 Agent（总览）
-        ├── iter-14a-design.md       #     14a：角色系统与三层工具过滤
-        └── iter-14b-design.md       #     14b：SubAgentRunner + sub_agent 工具 + 装配
+    ├── iter-14-design.md            #   迭代 14：子 Agent（总览）
+    │   ├── iter-14a-design.md       #     14a：角色系统与三层工具过滤
+    │   └── iter-14b-design.md       #     14b：SubAgentRunner + sub_agent 工具 + 装配
+    └── iter-15-design.md            #   迭代 15：Hook 引擎（总览）
+        ├── iter-15a-design.md       #     15a：Hook 核心引擎（加载层 + 纯逻辑层）
+        └── iter-15b-design.md       #     15b：Hook 集成接入（执行层 + 装配）
 ```
 
 ## 快速开始
@@ -170,7 +175,7 @@ dotnet test
 | 日志 | Microsoft.Extensions.Logging |
 | 测试 | xUnit + FluentAssertions + coverlet |
 
-测试项目 `ParrotCode.Net-xUnit/` 覆盖全部核心模块，每个迭代以 `dotnet test` 全绿作为完成标准。
+测试项目 `ParrotCode.Net-xUnit/` 覆盖全部核心模块，共 72 个测试文件、972 个测试用例，每个迭代以 `dotnet test` 全绿作为完成标准。
 
 ## 学习背景与致谢
 
